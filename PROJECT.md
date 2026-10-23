@@ -42,7 +42,9 @@ token-stats doctor           # 每台机器能否连上、上次成功时间、�
 - **服务器不需要 git 和 GitHub 凭据**：入库、导出、渲染、推送都在主机上完成，推送用主机上已有的 git 登录。
 - 每小时只传回新增请求（每条几十字节），不复制日志。
 - ssh 一律加 `-o BatchMode=yes -o ConnectTimeout=15 -o RemoteCommand=none -o RequestTTY=no`：不交互、不卡住，并覆盖用户 ssh 配置中的 RemoteCommand / RequestTTY。不修改任何 ssh 配置。
+- 本机总是扫描，机器名固定为 `local`（与 CC Switch 导入一致，保证按机器选来源时对得上）；远端用 `--remote <ssh 主机名>` 指定，可重复，主机名同时作为本地记录的机器名。
 - 按机器隔离失败：某台连不上不影响其他机器，`doctor` 显示每台的上次成功时间。
+- 同一时间只允许一个进程写 usage.db：collector 和 CC Switch 导入启动时都对 `usage.db.lock` 加锁，已被占用就提示后退出。
 - 主机关机期间不采集。Claude Code 默认只保留 30 天日志，主机至少每 30 天要运行一次 sync，否则服务器上更早的日志会在入库前被清理。
 - 不需要 GitHub Action：主机自己渲染并推送；“最近一年”窗口随主机每天的运行自然滚动。
 
@@ -52,11 +54,19 @@ token-stats doctor           # 每台机器能否连上、上次成功时间、�
 
 | 里程碑 | 内容 | 完成标准 |
 |---|---|---|
-| **M1 主机拉取架构** | 中央 usage.db（machine 列、跨机器去重）；ssh 远程解析并回传；导出改为每天一个文件 | 三台真实机器实测，各机器 × agent 与 ccusage 对账一致；重复运行不新增行、不重写文件；远端不留任何文件 |
+| ✅ **M1 主机拉取架构** | 中央 usage.db（machine 列、跨机器去重）；ssh 远程解析并回传；导出改为每天一个文件 | 三台真实机器实测，各机器 × agent 与 ccusage 对账一致；重复运行不新增行、不重写文件；远端不留任何文件 |
 | **M2 卡片** | 渲染改为 Python；热力图、模型占比环形图、模型排行柱状图、统计卡片，亮暗两色；预览页 | 预览页四张卡片正确，数字与 usage.db 一致 |
 | **M3 命令行工具** | `token-stats`（一次性统计）、`init`、`sync`、`doctor`；配置文件；定时任务安装 | 在一台干净的机器上，几条命令完成从安装到出图 |
 | **M4 发布** | `sync` 推送 data 和卡片；生成 README 片段 | 主页显示卡片，每小时自动更新 |
 | **M5 开源打包** | 中英文 README、LICENSE、合成日志测试、PyPI | 他人照 README 可装好 |
+
+M1 实测结果（2026-10-23，主机 laptop + 两台服务器经 ssh）：
+- 代码：`collector/scan.py`（扫描与解析，同一份源码既在主机本地调用，也经 ssh 发给远端 `python3 -I -B -` 执行）、`collector/collector.py`（中央 usage.db、调度、导出）、`collector/import_cc_switch.py`。
+- 用日志副本模拟三台机器写入同一个库并导入 CC Switch：各机器 × agent 与 ccusage 对账结果与第 6 节相同；合计 JSON 等于按机器选来源后之和，不含机器信息；第二、三次运行不新增行、不改写文件。
+- 传输等价：同一批日志直接调用 scan() 与经 `python3 -` 执行，产出的 52524 个事件逐个相同；带读取进度再跑，570 个文件全部跳过。发给远端的程序连同进度约 140 KB。
+- 真实机器：ssh 实测结果与日志副本在重叠日期（服务器 09-28 ~ 10-22、laptop 全部日期）逐日、逐模型完全一致。首次全量约 52 秒，之后每次约 6.5 秒（主要是 ssh 连接）。
+- 远端无写入：扫描后在两台服务器上查找此后新增或修改的文件，只有 ssh 登录本身产生的系统日志（journal、btmp，以及系统登录时刷新的信息缓存），没有 .pyc 或任何本项目的文件。
+- 新发现：server-1 上也有 Codex 日志（07-16 ~ 07-26，1824 次请求），旧架构只采集了它的 Claude Code；新架构默认每台机器两种 agent 都扫，自动补上，与 laptop 的 Codex 无主键冲突。
 
 M1 期间代码沿用 `collector/`，包结构在 M3 定稿。开发期本地 `archive/`（阶段一的日志副本，不提交）在 M1 实测通过后删除。
 
@@ -151,7 +161,7 @@ CREATE TABLE machines (
 
 ## 8. CC Switch 导入（可选，一次性）
 
-只读打开 CC Switch 数据库快照（`sqlite3 -readonly 原库 ".backup 快照"`），不碰原库；导入主机的 usage.db，machine = 'local'，source = `'cc-switch'`。一个 usage.db 只应从一份快照导入一次：CC Switch 之后可能把逐请求记录汇总成日汇总行并删除明细，用新快照再导入会重复计数。
+只读打开 CC Switch 数据库快照（`sqlite3 -readonly 原库 ".backup 快照"`），不碰原库；导入主机的 usage.db，machine = 'local'，source = `'cc-switch'`。一个 usage.db 只应从一份快照导入一次：CC Switch 之后可能把逐请求记录汇总成日汇总行并删除明细，用新快照再导入会重复计数。导入脚本会检查：库中已有 cc-switch 数据就拒绝导入，不提供强制选项。
 
 CC Switch 中的数据（2026-10-23 快照）：
 - `usage_daily_rollups`：较早的逐请求记录被汇总成"日期 × 应用 × 供应商 × 模型 × 请求模型 × 计价模型"的日汇总，明细已删除。

@@ -1,4 +1,0 @@
-timezone: Asia/Shanghai
-
-render:
-  metric: effective   # effective = input + cache_write + output；all = 四项全加

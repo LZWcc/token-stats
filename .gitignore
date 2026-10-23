@@ -1,0 +1,7 @@
+archive/
+node_modules/
+output/
+.DS_Store
+LOCAL.md
+*.db
+.env

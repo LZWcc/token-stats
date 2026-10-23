@@ -12,6 +12,12 @@ CARDS = (('heatmap', 'Token 用量'), ('stats', 'Token 统计'), ('models-donut'
 GIT_OPTS = ['-c', 'user.name=token-stats', '-c', 'user.email=token-stats@localhost', '-c', 'commit.gpgsign=false',
             '-c', 'init.defaultBranch=main']
 ENV = dict(os.environ, GIT_TERMINAL_PROMPT='0')  # 认证失败时直接报错，不卡在等待输入
+# gh 的完整路径：launchd、ssh 等环境的 PATH 里可能没有 Homebrew 目录
+GH = shutil.which('gh') or next((p for p in ('/opt/homebrew/bin/gh', '/usr/local/bin/gh') if os.path.exists(p)), None)
+if GH:
+    # 追加 gh 作为 github.com 的备用凭据助手：git 先试用户已有的（如钥匙串，ssh 会话里不可用），拿不到再用 gh 的登录。
+    # 只对本程序执行的 git 命令生效，不改用户的 git 配置
+    GIT_OPTS += ['-c', 'credential.https://github.com.helper=!"%s" auth git-credential' % GH]
 
 
 def run(cwd, *args, check=True):
@@ -84,7 +90,7 @@ def snippet(repo, b):
 
 def create(repo):
     """用 gh 新建公开仓库，克隆后提交并推送 README 作为第一个提交（只在新建时生成一次）。"""
-    r = subprocess.run(['gh', 'repo', 'create', repo, '--public'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    r = subprocess.run([GH, 'repo', 'create', repo, '--public'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     if r.returncode != 0:
         raise RuntimeError('gh repo create 失败：%s' % (r.stderr or r.stdout).strip())
     d = clone(repo)

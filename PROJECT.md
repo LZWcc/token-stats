@@ -77,7 +77,7 @@
 - 本地克隆在数据目录的 `publish/`。`sync` 照常导出到 `daily/`、渲染到 `cards/`，再镜像复制到 `publish/token-stats/`（删除多余文件，如改时区后不再对应数据的日期文件），导出与渲染逻辑不变。`publish/` 损坏时删掉重新克隆即可，不影响数据。
 - 推送步骤：`git fetch` → 本地重置到远端（`git reset --hard origin/<分支>`，保留用户在网页上对其他文件的修改）→ 镜像复制 → `git add -A token-stats` → 有变化才提交 → `git push`。子目录完全由本地数据生成，所以不用 rebase：上次没推上去的提交丢弃后会重新生成，远端对子目录的改动会被覆盖，不会出现冲突卡住发布。提交说明 `update <YYYY-MM-DD>`（配置时区的当天）。任何一步失败只打印错误，不影响采集和导出，下次 `sync` 重试；`doctor` 显示连接状态和未推送的提交数。`publish/` 由程序独占，不要在里面手动修改。
 - 提交作者固定为 `token-stats <token-stats@localhost>`（通过 `git -c user.name=… -c user.email=…` 传入，不修改用户的 git 配置）。这个邮箱不关联任何 GitHub 账号，自动提交不计入用户的贡献图；否则每天一次的提交会让贡献图天天变绿。
-- 凭据：用主机上已有的 git 登录（https 克隆，靠 git 凭据助手，gh 用户可用 `gh auth setup-git` 配置），token-stats 不保存任何令牌，也不修改 git 配置；推送因认证失败时提示用户自行配置。
+- 凭据：用主机上已有的登录，token-stats 不保存任何令牌，也不修改 git 配置。https 克隆，先用用户已有的 git 凭据助手（macOS 上通常是钥匙串）；装了 gh 时，token-stats 执行的 git 命令另用 `-c` 追加 gh 作为 github.com 的备用凭据助手（`gh auth git-credential`，gh 用完整路径）。原因：钥匙串只在本机登录会话中可用，ssh 远程会话里取不到凭据（实测报 “User interaction is not allowed”），追加 gh 后本机终端、ssh、定时任务都能推送，也不需要用户运行会修改 `~/.gitconfig` 的 `gh auth setup-git`。都取不到凭据时推送失败并打印错误。
 - `init` 在口径之后询问“发布到哪个 GitHub 仓库（owner/name），直接回车跳过”：
   - 仓库不存在且装了 gh：说明公开内容后询问，同意则 `gh repo create <owner/name> --public`，并推送生成的 README 作为第一个提交。
   - 仓库不存在且没有 gh：提示先在网页上建一个公开仓库，再重新运行 `init`。

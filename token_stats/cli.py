@@ -1,7 +1,6 @@
 """命令行入口：token-stats [init | sync | doctor | merge | import-cc-switch | rename]。见 PROJECT.md 第 2 节。"""
 import argparse
 import os
-import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -273,7 +272,7 @@ def setup_publish(repo):
         return True
     except (RuntimeError, OSError) as e:
         print('  无法克隆 %s：%s' % (repo, e))
-    if not shutil.which('gh'):
+    if not publish.GH:
         print('  仓库还不存在的话，请先在 GitHub 网页上新建一个公开仓库，再重新运行 token-stats init；本次不发布')
         return False
     if not ask_yes('  用 gh 新建公开仓库 %s？公开内容只有每天合计的 token 数、按 agent 和模型的拆分（含模型名）和卡片，'

@@ -4,3 +4,4 @@ output/
 LOCAL.md
 *.db
 .env
+__pycache__/

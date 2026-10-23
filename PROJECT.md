@@ -20,9 +20,9 @@
 | 命令 | 作用 |
 |---|---|
 | `token-stats` | 先统计：零配置，只扫本机，用临时库（不写任何文件到数据目录），终端打印汇总，生成卡片到当前目录的 `token-stats-cards/` 并打开预览页 |
-| `token-stats init` | 向导：本机起名 → 从 `~/.ssh/config` 列出主机供勾选（只读不改）→ 逐台检查免密连接和远端 Python 版本 → 检测到 CC Switch 时询问是否导入（先做只读快照）→ 写配置 → 首次全量采集 → 询问是否安装定时任务（可选，默认否） |
-| `token-stats sync` | 采集本机和各远端 → 自动合并配置里的其他库 → 导出 → 渲染。定时任务调用的就是它（推送到 GitHub 在 M4） |
-| `token-stats doctor` | 每台机器：能否连上、远端 Python 版本、上次成功时间、上次错误、行数；定时任务是否已安装；zstd 是否可用 |
+| `token-stats init` | 向导：本机起名 → 从 `~/.ssh/config` 列出主机供勾选（只读不改）→ 逐台检查免密连接和远端 Python 版本 → 检测到 CC Switch 时询问是否导入（先做只读快照）→ 询问发布仓库（可选，见“发布”）→ 写配置 → 首次全量采集 → 询问是否安装定时任务（可选，默认否） |
+| `token-stats sync` | 采集本机和各远端 → 自动合并配置里的其他库 → 导出 → 渲染 → 配置了发布仓库时推送（见“发布”）。定时任务调用的就是它 |
+| `token-stats doctor` | 每台机器：能否连上、远端 Python 版本、上次成功时间、上次错误、行数；定时任务是否已安装；zstd 是否可用；发布仓库是否已克隆、能否连上、上次推送时间、未推送的提交数 |
 | `token-stats merge <usage.db> --as <名字>` | 把另一台机器（如连不上的 Windows）自己的 usage.db 合并进来，机器名改为指定名字；只合并请求，不合并对方的读取进度；可重复执行，靠主键去重 |
 | `token-stats import-cc-switch` | 导入 CC Switch 历史（init 中也会询问），规则见第 8 节 |
 | `token-stats rename <旧名> <新名>` | 改机器名：同时更新 requests / files / machines 三张表，否则改名后读取进度对不上、会把所有文件重读一遍 |
@@ -41,7 +41,8 @@
     { "path": "~/OneDrive/token-stats/win-pc.db", "name": "win-pc" }
   ],
   "timezone": "Asia/Shanghai",
-  "metric": "all"
+  "metric": "all",
+  "publish": "alice/token-stats-data"
 }
 ```
 
@@ -50,11 +51,40 @@
 - `merge`：每次 `sync` 自动合并的其他库，适合放在网盘同步文件夹里：那台机器自己运行 token-stats，把 usage.db 同步过来。
 - `timezone`：划分日期用，默认取系统时区。
 - `metric`：卡片口径，`all`（默认）或 `effective`。
+- `publish`：发布仓库 `owner/name`，默认不发布（见“发布”）。
 - 机器名只存在本地 usage.db 中，不进入公开数据，可以随意起。一台机器的名字确定后不要直接改配置，用 `rename`。
 
 ### 数据目录
 
-`~/.local/share/token-stats/`（Windows：`%LOCALAPPDATA%\token-stats\`）：`usage.db`、`usage.db.lock`、`daily/`（导出的日数据）、`cards/`（卡片）、`run.log`。
+`~/.local/share/token-stats/`（Windows：`%LOCALAPPDATA%\token-stats\`）：`usage.db`、`usage.db.lock`、`daily/`（导出的日数据）、`cards/`（卡片）、`publish/`（发布仓库的本地克隆，见“发布”）、`run.log`。
+
+### 发布（M4）
+
+可选。配置了 `publish` 时，`sync` 在渲染之后把日数据和卡片推送到用户自己的 GitHub 仓库，主页 README 引用其中的卡片；不配置就只在本地生成。
+
+- 为什么需要一个仓库：数据来自用户机器上的日志，在线服务和 GitHub Actions 都读不到，只能在本机生成卡片，再放到公开的地方供 README 引用。推荐单独建一个仓库（如 `token-stats-data`），也可以用已有仓库（如主页仓库）。不推到 token-stats 源码仓库或它的 fork：数据提交会和代码混在一起，升级时与上游长期分叉。
+- 仓库必须公开，否则主页无法显示其中的图片。公开内容见第 10 节。
+- 只管理目标仓库中的 `token-stats/` 子目录，子目录以外的文件一概不碰：
+
+```
+<仓库>/
+  README.md                         ← 只在 init 新建仓库时生成一次（展示卡片并附 README 片段），之后不再改动；已有仓库不碰
+  token-stats/
+    data/daily/<YYYY-MM-DD>.json    ← 第 7 节的日数据
+    cards/*.svg                     ← 第 9 节的卡片，亮暗各一份；preview.html 不推送
+```
+
+- 本地克隆在数据目录的 `publish/`。`sync` 照常导出到 `daily/`、渲染到 `cards/`，再镜像复制到 `publish/token-stats/`（删除多余文件，如改时区后不再对应数据的日期文件），导出与渲染逻辑不变。`publish/` 损坏时删掉重新克隆即可，不影响数据。
+- 推送步骤：`git pull --rebase`（用户可能在网页上改过仓库里的其他文件）→ 镜像复制 → `git add -A token-stats` → 有变化才提交 → `git push`。提交说明 `update <YYYY-MM-DD>`（配置时区的当天）。任何一步失败只打印并记录错误，不影响采集和导出；之前没推上去的提交下次 `sync` 一并推送。
+- 提交作者固定为 `token-stats <token-stats@localhost>`（通过 `git -c user.name=… -c user.email=…` 传入，不修改用户的 git 配置）。这个邮箱不关联任何 GitHub 账号，自动提交不计入用户的贡献图；否则每天一次的提交会让贡献图天天变绿。
+- 凭据：用主机上已有的 git 登录（https 克隆，靠 git 凭据助手，gh 用户可用 `gh auth setup-git` 配置），token-stats 不保存任何令牌，也不修改 git 配置；推送因认证失败时提示用户自行配置。
+- `init` 在口径之后询问“发布到哪个 GitHub 仓库（owner/name），直接回车跳过”：
+  - 仓库不存在且装了 gh：说明公开内容后询问，同意则 `gh repo create <owner/name> --public`，并推送生成的 README 作为第一个提交。
+  - 仓库不存在且没有 gh：提示先在网页上建一个公开仓库，再重新运行 `init`。
+  - 仓库已存在：直接克隆，不碰 README 和子目录以外的文件。
+  - 最后打印 README 片段。
+- README 片段：每张卡片一个 `<picture>`，按访客主题切换亮暗，图片地址为 `https://raw.githubusercontent.com/<owner>/<repo>/<默认分支>/token-stats/cards/<名字>{,-dark}.svg`。用户自己决定贴哪几张、贴到哪里，程序不修改用户的主页仓库。GitHub 对图片有缓存，推送后可能要几分钟才更新。
+- 试用模式（不带子命令的 `token-stats`）永不推送。
 
 ### 跨平台
 
@@ -124,15 +154,15 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/<�
 ## 3. 架构：主机拉取
 
 ```
-主机（用户自己的电脑，唯一安装 token-stats 的机器，定时运行 sync）
+主机（用户自己的电脑，唯一安装 token-stats 的机器，手动或定时运行 sync）
   ├─ 本机日志 ───────────────────────────────┐
   ├─ ssh 服务器A  python3 -（stdin 传入解析脚本）──┤→ 中央 usage.db（逐请求，带 machine 列）
   ├─ ssh 服务器B  python3 -  …                 ──┤
   └─ CC Switch 快照（可选，一次性导入）─────────┘
         ↓ 导出（所有机器合计，不含机器信息）
-  data/daily/<YYYY-MM-DD>.json
+  daily/<YYYY-MM-DD>.json（数据目录）
         ↓ 渲染
-  output/*.svg  → git push 到用户自己的 GitHub 仓库 → 主页 README 引用
+  cards/*.svg  →（可选）复制到发布仓库的 token-stats/ 子目录，git push → 主页 README 引用
 ```
 
 - **服务器零安装、零写入**：主机通过 ssh 把解析脚本从 stdin 发给远端 `python3 -`，同时发去该机器各日志文件的读取进度；远端只解析新增部分，把新请求和新进度逐行打印回来。远端不写任何文件，日志只读。远端只需要 sshd、python3 ≥ 3.9。
@@ -154,7 +184,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/<�
 | ✅ **M1 主机拉取架构** | 中央 usage.db（machine 列、跨机器去重）；ssh 远程解析并回传；导出改为每天一个文件 | 三台真实机器实测，各机器 × agent 与 ccusage 对账一致；重复运行不新增行、不重写文件；远端不留任何文件 |
 | ✅ **M2 卡片** | 渲染改为 Python；热力图、模型占比环形图、模型排行柱状图、统计卡片，亮暗两色；预览页 | 预览页四张卡片正确，数字与 usage.db 一致 |
 | ✅ **M3 命令行工具** | 第 2 节的全部命令、配置文件、数据目录、跨平台、定时任务；包结构改为 `token_stats/` | 用全新的临时家目录模拟首次安装，`init` 到出图全程跑通；在本机 `sync` 的结果与 M2 一致；`merge` 重复执行不重复计数；`rename` 后不重读文件 |
-| **M4 发布** | `sync` 推送 data 和卡片；生成 README 片段 | `sync` 后主页显示最新卡片；装了定时任务时每天自动更新 |
+| **M4 发布** | 可选发布（第 2 节“发布”）：`sync` 把日数据和卡片推送到用户仓库的 `token-stats/` 子目录；`init` 询问仓库，可用 gh 新建；README 片段；自动提交不计入贡献图 | 用本地裸仓库测试：首次推送、无变化不提交、推送失败后补推、多余文件被删除、子目录以外的文件不变、提交作者正确；真实仓库推送后卡片在 GitHub 上正常显示 |
 | **M5 开源打包** | 安装脚本（`install.sh`、`install.ps1`，见第 2 节“安装”）、中英文 README、LICENSE、合成日志测试 | 他人照 README 用一条命令装好，直接运行 `token-stats` |
 
 M1 实测结果（2026-10-23，主机 laptop + 两台服务器经 ssh）：
@@ -333,7 +363,7 @@ CC Switch 中的数据（2026-10-23 快照）：
 
 ## 10. 公开与脱敏
 
-- 公开（推送到用户仓库）：每天合计的四项 token 数、按 agent 和按模型的拆分、SVG 卡片。
+- 公开（推送到用户仓库的 `token-stats/` 子目录）：每天合计的四项 token 数、按 agent 和按模型的拆分（含模型名）、SVG 卡片。自动提交的作者是 `token-stats <token-stats@localhost>`，不含用户的姓名和邮箱。
 - 不公开：机器名和数量、IP、端口、ssh 配置、代理、用户名、本地路径；日志原文、prompt、代码、项目路径、会话 id；`usage.db`；任何凭据。
 - `.gitignore` 至少包含：`archive/`、`output/`、`LOCAL.md`、`*.db`、`.env`。
 

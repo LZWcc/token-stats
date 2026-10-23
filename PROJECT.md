@@ -1,6 +1,6 @@
 # token-stats 项目规格（唯一规格来源）
 
-> 本仓库公开。本文件和所有提交内容都不得包含真实机器名、IP、端口、ssh 别名或配置、代理、用户名、本地路径。文档中的 `laptop` / `server-1` / `server-2` 只是示例标签。
+> 本仓库公开。本文件和所有提交内容都不得包含真实机器名、IP、端口、ssh 别名或配置、代理、本机用户名（作为路径或登录名）、本地路径；GitHub 账号除外（源码仓库地址、安装命令中会出现）。文档中的 `laptop` / `server-1` / `server-2` 只是示例标签。
 
 ## 1. 项目目标
 
@@ -119,21 +119,22 @@ Python 包 `token_stats/`（`python3 -m token_stats`）；M5 起用安装脚本�
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/<账号>/token-stats/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/LZWcc/token-stats/main/install.sh | sh
 ```
 
 ```powershell
 # Windows
-powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/<账号>/token-stats/main/install.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/LZWcc/token-stats/main/install.ps1 | iex"
 ```
 
-- `<账号>` 是公开仓库所在的 GitHub 账号，M4 确定仓库后替换。
+- 源码仓库：`LZWcc/token-stats`。
 - 与 Codex 的安装脚本不同，下载的不是独立程序，用户机器上需要 Python ≥ 3.9：macOS 由 Xcode 命令行工具提供 `/usr/bin/python3`，Linux 发行版通常自带，Windows 需自行安装。不用 PyInstaller 打包独立程序（每个平台要单独构建，体积大）。
 - 安装脚本：
-  1. 检查 `python3`（Windows：`python`）是否 ≥ 3.9，不满足就提示安装方法后退出。
-  2. 从 GitHub 下载最新 tag 的源码包（GitHub 自动生成的归档，不需要构建步骤），解压后整个替换程序目录：数据目录下的 `app/`。
-  3. 生成启动脚本：macOS / Linux 为 `~/.local/bin/token-stats`，Windows 为 `%LOCALAPPDATA%\token-stats\bin\token-stats.cmd`，内容是设置 `PYTHONPATH` 为程序目录后执行 `python3 -m token_stats` 并传入全部参数。
+  1. 找 Python ≥ 3.9：macOS 优先系统自带的 `/usr/bin/python3`，其次 PATH 中的 `python3`；Linux 用 PATH 中的 `python3`；Windows 用 `python`。不满足就提示安装方法后退出。
+  2. 从 GitHub 下载**最新 Release** 的源码包（由 `releases/latest` 的重定向得到版本号，再下载 GitHub 为该 tag 自动生成的归档，不需要构建步骤），解压后整个替换程序目录：数据目录下的 `app/`。只装发布过的版本，不装 `main` 上未发布的代码。环境变量 `TOKEN_STATS_ARCHIVE` 可指定源码包地址，只用于测试。
+  3. 生成启动脚本：macOS / Linux 为 `~/.local/bin/token-stats`，Windows 为 `%LOCALAPPDATA%\token-stats\bin\token-stats.cmd`，内容是设置 `PYTHONPATH` 为程序目录后，用第 1 步找到的 Python 的**绝对路径**执行 `-m token_stats` 并传入全部参数。定时任务记录的也是这个 Python；Homebrew 等带版本号的路径在升级 Python 后会失效，所以 macOS 优先 `/usr/bin/python3`。
   4. 启动脚本所在目录不在 PATH 中时，只打印需要添加的那一行，不修改 `~/.zshrc`、`~/.bashrc` 或系统 PATH 等用户配置。
+  5. 打印安装的版本。
 - 升级：重新运行安装命令。只替换 `app/`，不动配置和 usage.db；定时任务指向的程序目录不变，不用重装。
 - 卸载：README 写明命令：先移除定时任务，再删除 `app/` 和启动脚本；配置和 usage.db 是否删除由用户决定。
 - 现有代码不依赖安装位置：定时任务按包所在目录设置 `PYTHONPATH`，远端扫描从包目录读取 `scan.py` 源码。
@@ -185,7 +186,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/<�
 | ✅ **M2 卡片** | 渲染改为 Python；热力图、模型占比环形图、模型排行柱状图、统计卡片，亮暗两色；预览页 | 预览页四张卡片正确，数字与 usage.db 一致 |
 | ✅ **M3 命令行工具** | 第 2 节的全部命令、配置文件、数据目录、跨平台、定时任务；包结构改为 `token_stats/` | 用全新的临时家目录模拟首次安装，`init` 到出图全程跑通；在本机 `sync` 的结果与 M2 一致；`merge` 重复执行不重复计数；`rename` 后不重读文件 |
 | ✅ **M4 发布** | 可选发布（第 2 节“发布”）：`sync` 把日数据和卡片推送到用户仓库的 `token-stats/` 子目录；`init` 询问仓库，可用 gh 新建；README 片段；自动提交不计入贡献图 | 用本地裸仓库测试：首次推送、无变化不提交、推送失败后补推、多余文件被删除、子目录以外的文件不变、提交作者正确；真实仓库推送后卡片在 GitHub 上正常显示 |
-| **M5 开源打包** | 安装脚本（`install.sh`、`install.ps1`，见第 2 节“安装”）、中英文 README、LICENSE、合成日志测试 | 他人照 README 用一条命令装好，直接运行 `token-stats` |
+| **M5 开源打包** | LICENSE、自动化测试与 GitHub Actions、安装脚本（第 2 节“安装”）、中文 README、公开源码仓库并发布 Release（见下方“M5 计划”） | 他人照 README 用一条命令装好，直接运行 `token-stats`；三个平台的 CI 通过 |
 
 M1 实测结果（2026-10-23，主机 laptop + 两台服务器经 ssh）：
 - 代码（当时位于 `collector/`，M3 移入 `token_stats/`）：scan.py（扫描与解析，同一份源码既在主机本地调用，也经 ssh 发给远端 `python3 -I -B -` 执行）、中央 usage.db 与调度、CC Switch 导入。
@@ -210,6 +211,15 @@ M4 实测结果（2026-10-24，主机 laptop）：
 - 凭据：ssh 会话里钥匙串不可用（-25308），追加 gh 作为备用凭据助手后，经 ssh、精简 PATH 的推送演练（`push --dry-run`）成功。
 - 真实仓库：主机上用正式数据运行 `init`，用 gh 新建公开仓库并首次推送 README、8 张卡片、172 个日数据文件；默认分支 `main`；卡片的 raw 地址返回 `image/svg+xml`；推送内容中没有机器名、用户名和本地路径；`doctor` 正常。
 - 未实测：没有 gh 时的流程（提示先在网页上建仓库）、推到已有内容的仓库（如主页仓库）、定时任务中推送。
+
+M5 计划：
+1. 基础文件：`LICENSE`（MIT，版权人 LZWcc）；`.gitignore` 加 `__pycache__/`。
+2. 自动化测试：`tests/`，只用标准库 `unittest`，用 `python3 -m unittest` 运行；合成日志按第 6 节规则构造，不含任何真实数据。覆盖：解析；跨机器去重、同一请求多次出现时的取舍；增量读取（文件变大、变小、`.zst`）；CC Switch 导入（合成 sqlite 库）与只导入一次的保护；导出的时区、夏令时、删除多余的日期文件；渲染时没有数据、中文和超长模型名；`merge`、`rename`；发布（本地裸仓库，覆盖 M4 实测的各项）。不覆盖 ssh 远端和定时任务的实际安装。
+3. GitHub Actions：每次推送在 macOS、Linux、Windows 上用 Python 3.9 和最新版运行测试。这是 Windows 目前唯一的验证途径，但覆盖不到定时任务和 ssh 远端。
+4. 安装脚本：`install.sh`、`install.ps1`（第 2 节“安装”），在 Mac 的临时家目录中测试（`TOKEN_STATS_ARCHIVE` 指向本地打包的源码包）。
+5. README：先只写中文 `README.md`；英文版以后再补（`README.en.md`）。内容：是什么；卡片示例（引用作者的数据仓库）；安装、试用、`init`；多台机器（服务器需要免密 ssh、Python ≥ 3.9）；发布与 README 片段；合并其他机器、导入 CC Switch；配置说明；公开哪些内容；Claude Code 30 天日志保留期与“至少每 30 天 `sync` 一次”；可选的定时任务；升级与卸载。
+6. 公开发布（每一步先征得作者同意）：创建公开仓库 `LZWcc/token-stats`，只推送 `main`，不推送旧架构的 `dev` 分支；打 tag `v0.1.0`，用 `gh release create` 发布 Release。`PROJECT.md`、`CLAUDE.md`、`AGENTS.md` 随仓库公开；提交作者为作者本人的 GitHub 身份。
+7. 实测：在临时家目录中用 `curl … | sh` 从 GitHub 安装并跑通；再用安装脚本替换作者手动复制的 `app/`，配置和 usage.db 不动。
 
 代码位于 `token_stats/`（第 2 节）。开发期本地 `archive/`（阶段一的日志副本）已于 2026-10-23 删除。
 
@@ -371,8 +381,9 @@ CC Switch 中的数据（2026-10-23 快照）：
 ## 10. 公开与脱敏
 
 - 公开（推送到用户仓库的 `token-stats/` 子目录）：每天合计的四项 token 数、按 agent 和按模型的拆分（含模型名）、SVG 卡片。自动提交的作者是 `token-stats <token-stats@localhost>`，不含用户的姓名和邮箱。
-- 不公开：机器名和数量、IP、端口、ssh 配置、代理、用户名、本地路径；日志原文、prompt、代码、项目路径、会话 id；`usage.db`；任何凭据。
-- `.gitignore` 至少包含：`archive/`、`output/`、`LOCAL.md`、`*.db`、`.env`。
+- 不公开：机器名和数量、IP、端口、ssh 配置、代理、本机用户名（作为路径或登录名）、本地路径；日志原文、prompt、代码、项目路径、会话 id；`usage.db`；任何凭据。
+- GitHub 账号例外：源码仓库地址、安装命令、README 中的示例卡片地址会出现作者的 GitHub 账号。源码仓库的提交作者为作者本人的 GitHub 身份。
+- `.gitignore` 至少包含：`archive/`、`output/`、`LOCAL.md`、`*.db`、`.env`、`__pycache__/`。
 
 ## 11. 运行环境
 

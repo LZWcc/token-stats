@@ -1,6 +1,7 @@
 """命令行入口：token-stats [init | sync | doctor | merge | import-cc-switch | rename]。见 PROJECT.md 第 2 节。"""
 import argparse
 import os
+import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -9,7 +10,7 @@ import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import ccswitch, config, remote, render, scan, schedule, store
+from . import ccswitch, config, publish, remote, render, scan, schedule, store
 
 STALE_DAYS = 7
 LABELS = {'files_read': '读取文件', 'files_unchanged': '未变文件', 'rows': '请求', 'rows_written': '写入',
@@ -113,6 +114,12 @@ def run_sync(conn, cfg):
     failed = collect(conn, cfg)
     print('导出：%s' % fmt(store.export(conn, config.PATHS['daily'], tz)))
     preview = render.render_cards(config.PATHS['daily'], config.PATHS['cards'], cfg['metric'], today)
+    if cfg['publish']:
+        try:
+            print('发布：%s' % publish.publish(cfg['publish'], config.PATHS['daily'], config.PATHS['cards'], today))
+        except (RuntimeError, OSError) as e:
+            print('发布失败：%s（下次 sync 时重试）' % e)
+            failed.append(cfg['publish'])
     if store.backup(conn, config.PATHS['backups'], today):
         print('已备份 usage.db 到 %s' % config.PATHS['backups'])
     for name, last in stale(conn, cfg):
@@ -157,6 +164,14 @@ def cmd_doctor(args):
     print('本机 zstd：%s' % (zstd or '未找到（Codex 的 .zst 压缩日志会被跳过）'))
     ok, desc = schedule.status()
     print('定时任务：%s' % ('已安装（%s）' % desc if ok else '未安装（可选，手动运行 sync 即可）'))
+    if cfg['publish']:
+        err, cloned, last, ahead = publish.status(cfg['publish'])
+        print('发布：%s · %s · %s · 远端最新提交 %s · 未推送的提交 %d 个' % (
+            cfg['publish'], '连接失败：%s' % err if err else '可以连接', '已克隆' if cloned else '未克隆（下次 sync 时自动克隆）',
+            ago(last), ahead))
+        problems += bool(err) + (ahead > 0)
+    else:
+        print('发布：未配置（只在本地生成卡片）')
     conn = store.connect(db) if os.path.exists(db) else None
     status = {m: (o, e) for m, o, e in conn.execute('SELECT machine, last_ok, last_error FROM machines')} if conn else {}
     rows = dict(conn.execute('SELECT machine, count(*) FROM requests GROUP BY 1')) if conn else {}
@@ -250,6 +265,29 @@ def ssh_hosts():
     return hosts
 
 
+def setup_publish(repo):
+    """init 中准备发布仓库：能克隆就用；不存在时可用 gh 新建公开仓库。返回是否可用。"""
+    try:
+        publish.clone(repo)
+        print('  ✓ 已克隆 %s' % repo)
+        return True
+    except (RuntimeError, OSError) as e:
+        print('  无法克隆 %s：%s' % (repo, e))
+    if not shutil.which('gh'):
+        print('  仓库还不存在的话，请先在 GitHub 网页上新建一个公开仓库，再重新运行 token-stats init；本次不发布')
+        return False
+    if not ask_yes('  用 gh 新建公开仓库 %s？公开内容只有每天合计的 token 数、按 agent 和模型的拆分（含模型名）和卡片，'
+                   '不含机器名和路径' % repo, False):
+        return False
+    try:
+        publish.create(repo)
+    except (RuntimeError, OSError) as e:
+        print('  新建失败：%s；本次不发布' % e)
+        return False
+    print('  ✓ 已新建 %s 并推送 README' % repo)
+    return True
+
+
 def cmd_init(args):
     old = config.load()
     if old and not ask_yes('已有配置 %s，重新配置？' % config.CONFIG_PATH, False):
@@ -307,6 +345,8 @@ def cmd_init(args):
     cfg['timezone'] = tz if tz and config.get_tz(tz) else None
     metric = ask('卡片口径：all = 四项全加，effective = 不含缓存读取', old['metric'])
     cfg['metric'] = metric if metric in ('all', 'effective') else 'all'
+    repo = ask('发布到哪个 GitHub 仓库（owner/name，须公开，主页 README 才能引用其中的卡片），直接回车跳过', old['publish'] or '')
+    cfg['publish'] = repo if repo and setup_publish(repo) else None
     config.save(cfg)
     print('已保存配置：%s' % config.CONFIG_PATH)
 
@@ -326,6 +366,9 @@ def cmd_init(args):
         except (RuntimeError, OSError) as e:
             print('安装失败：%s' % e)
             rc = 1
+    if cfg['publish']:
+        print('\n在 README 中引用卡片（贴到哪里由你决定，token-stats 不会改你的主页仓库）：\n%s'
+              % publish.snippet(cfg['publish'], publish.branch(config.PATHS['publish'])))
     print('\n完成。数据目录：%s；随时可运行 token-stats doctor 检查状态' % config.DATA_DIR)
     return rc
 

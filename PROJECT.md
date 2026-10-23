@@ -75,7 +75,7 @@
 ```
 
 - 本地克隆在数据目录的 `publish/`。`sync` 照常导出到 `daily/`、渲染到 `cards/`，再镜像复制到 `publish/token-stats/`（删除多余文件，如改时区后不再对应数据的日期文件），导出与渲染逻辑不变。`publish/` 损坏时删掉重新克隆即可，不影响数据。
-- 推送步骤：`git pull --rebase`（用户可能在网页上改过仓库里的其他文件）→ 镜像复制 → `git add -A token-stats` → 有变化才提交 → `git push`。提交说明 `update <YYYY-MM-DD>`（配置时区的当天）。任何一步失败只打印并记录错误，不影响采集和导出；之前没推上去的提交下次 `sync` 一并推送。
+- 推送步骤：`git fetch` → 本地重置到远端（`git reset --hard origin/<分支>`，保留用户在网页上对其他文件的修改）→ 镜像复制 → `git add -A token-stats` → 有变化才提交 → `git push`。子目录完全由本地数据生成，所以不用 rebase：上次没推上去的提交丢弃后会重新生成，远端对子目录的改动会被覆盖，不会出现冲突卡住发布。提交说明 `update <YYYY-MM-DD>`（配置时区的当天）。任何一步失败只打印错误，不影响采集和导出，下次 `sync` 重试；`doctor` 显示连接状态和未推送的提交数。`publish/` 由程序独占，不要在里面手动修改。
 - 提交作者固定为 `token-stats <token-stats@localhost>`（通过 `git -c user.name=… -c user.email=…` 传入，不修改用户的 git 配置）。这个邮箱不关联任何 GitHub 账号，自动提交不计入用户的贡献图；否则每天一次的提交会让贡献图天天变绿。
 - 凭据：用主机上已有的 git 登录（https 克隆，靠 git 凭据助手，gh 用户可用 `gh auth setup-git` 配置），token-stats 不保存任何令牌，也不修改 git 配置；推送因认证失败时提示用户自行配置。
 - `init` 在口径之后询问“发布到哪个 GitHub 仓库（owner/name），直接回车跳过”：

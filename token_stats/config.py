@@ -16,8 +16,9 @@ PATHS = {
     'cards': os.path.join(DATA_DIR, 'cards'),
     'backups': os.path.join(DATA_DIR, 'backups'),
     'log': os.path.join(DATA_DIR, 'run.log'),
+    'publish': os.path.join(DATA_DIR, 'publish'),
 }
-DEFAULTS = {'machine': 'local', 'remotes': [], 'merge': [], 'timezone': None, 'metric': 'all'}
+DEFAULTS = {'machine': 'local', 'remotes': [], 'merge': [], 'timezone': None, 'metric': 'all', 'publish': None}
 
 
 def load():

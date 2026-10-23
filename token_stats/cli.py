@@ -156,8 +156,7 @@ def cmd_doctor(args):
     zstd = scan.find_zstd()
     print('本机 zstd：%s' % (zstd or '未找到（Codex 的 .zst 压缩日志会被跳过）'))
     ok, desc = schedule.status()
-    print('定时任务：%s（%s）' % ('已安装' if ok else '未安装', desc))
-    problems += not ok
+    print('定时任务：%s' % ('已安装（%s）' % desc if ok else '未安装（可选，手动运行 sync 即可）'))
     conn = store.connect(db) if os.path.exists(db) else None
     status = {m: (o, e) for m, o, e in conn.execute('SELECT machine, last_ok, last_error FROM machines')} if conn else {}
     rows = dict(conn.execute('SELECT machine, count(*) FROM requests GROUP BY 1')) if conn else {}

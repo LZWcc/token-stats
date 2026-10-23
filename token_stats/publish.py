@@ -20,11 +20,17 @@ if GH:
     GIT_OPTS += ['-c', 'credential.https://github.com.helper=!"%s" auth git-credential' % GH]
 
 
+def error_line(r):
+    """git 报错中最有用的一行：优先 fatal: / error:（前面可能有凭据助手的无关报错，如钥匙串不可用时的 -25308）。"""
+    lines = (r.stderr or r.stdout).strip().splitlines()
+    return next((l for l in lines if l.startswith(('fatal:', 'error:'))), lines[0] if lines else '')
+
+
 def run(cwd, *args, check=True):
     r = subprocess.run(['git'] + GIT_OPTS + list(args), cwd=cwd, env=ENV,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     if check and r.returncode != 0:
-        raise RuntimeError('git %s 失败：%s' % (args[0], ((r.stderr or r.stdout).strip().splitlines() or [''])[0]))
+        raise RuntimeError('git %s 失败：%s' % (args[0], error_line(r)))
     return r
 
 
@@ -108,7 +114,7 @@ def create(repo):
 def status(repo):
     """供 doctor（不 fetch）：返回 (连接错误或 None, 是否已克隆, 远端最新提交的毫秒时间戳或 None, 未推送的提交数)。"""
     r = run(None, 'ls-remote', '-q', '--heads', url(repo), check=False)
-    err = None if r.returncode == 0 else ((r.stderr or r.stdout).strip().splitlines() or [''])[0]
+    err = None if r.returncode == 0 else error_line(r)
     d = PATHS['publish']
     if not os.path.isdir(os.path.join(d, '.git')):
         return err, False, None, 0

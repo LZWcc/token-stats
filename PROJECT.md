@@ -65,7 +65,18 @@
 
 ### 包结构
 
-`collector/`、`scripts/` 合并为 Python 包 `token_stats/`（`python3 -m token_stats`），为 M5 上架 PyPI 后用 `uvx` / `pipx` 安装做准备。
+Python 包 `token_stats/`（`python3 -m token_stats`），为 M5 上架 PyPI 后用 `uvx` / `pipx` 安装做准备：
+
+| 模块 | 作用 |
+|---|---|
+| `scan.py` | 读日志、解析请求（第 6 节）；同一份源码既在主机本地调用，也经 ssh 发给远端执行，所以只用标准库、不 import 本包其他模块、不写文件 |
+| `store.py` | 表结构、去重写入、导出日数据、合并、改名、备份、跨平台文件锁 |
+| `remote.py` | 经 ssh 在远端执行 scan.py、检查远端 Python 版本 |
+| `ccswitch.py` | CC Switch 只读快照与导入（第 8 节） |
+| `render.py` | 四张卡片（第 9 节） |
+| `config.py` | 配置文件、数据目录、时区 |
+| `schedule.py` | 定时任务的安装与状态 |
+| `cli.py` | 各命令 |
 
 ### M3 同时修复与补充
 
@@ -97,7 +108,7 @@
 - **服务器不需要 git 和 GitHub 凭据**：入库、导出、渲染、推送都在主机上完成，推送用主机上已有的 git 登录。
 - 每小时只传回新增请求（每条几十字节），不复制日志。
 - ssh 一律加 `-o BatchMode=yes -o ConnectTimeout=15 -o RemoteCommand=none -o RequestTTY=no`：不交互、不卡住，并覆盖用户 ssh 配置中的 RemoteCommand / RequestTTY。不修改任何 ssh 配置。
-- 本机总是扫描，机器名固定为 `local`（与 CC Switch 导入一致，保证按机器选来源时对得上）；远端用 `--remote <ssh 主机名>` 指定，可重复，主机名同时作为本地记录的机器名。
+- 本机总是扫描，机器名取配置的 `machine`（默认 `local`，与 CC Switch 导入共用，保证按机器选来源时对得上）；远端由配置的 `remotes` 指定，记录用的机器名为 `name`（默认等于 ssh 主机名）。
 - 按机器隔离失败：某台连不上不影响其他机器，`doctor` 显示每台的上次成功时间。
 - 同一时间只允许一个进程写 usage.db：collector 和 CC Switch 导入启动时都对 `usage.db.lock` 加锁，已被占用就提示后退出。
 - 主机关机期间不采集。Claude Code 默认只保留 30 天日志，主机至少每 30 天要运行一次 sync，否则服务器上更早的日志会在入库前被清理。
@@ -111,19 +122,28 @@
 |---|---|---|
 | ✅ **M1 主机拉取架构** | 中央 usage.db（machine 列、跨机器去重）；ssh 远程解析并回传；导出改为每天一个文件 | 三台真实机器实测，各机器 × agent 与 ccusage 对账一致；重复运行不新增行、不重写文件；远端不留任何文件 |
 | ✅ **M2 卡片** | 渲染改为 Python；热力图、模型占比环形图、模型排行柱状图、统计卡片，亮暗两色；预览页 | 预览页四张卡片正确，数字与 usage.db 一致 |
-| **M3 命令行工具** | 第 2 节的全部命令、配置文件、数据目录、跨平台、定时任务；包结构改为 `token_stats/` | 用全新的临时家目录模拟首次安装，`init` 到出图全程跑通；在本机 `sync` 的结果与 M2 一致；`merge` 重复执行不重复计数；`rename` 后不重读文件 |
+| ✅ **M3 命令行工具** | 第 2 节的全部命令、配置文件、数据目录、跨平台、定时任务；包结构改为 `token_stats/` | 用全新的临时家目录模拟首次安装，`init` 到出图全程跑通；在本机 `sync` 的结果与 M2 一致；`merge` 重复执行不重复计数；`rename` 后不重读文件 |
 | **M4 发布** | `sync` 推送 data 和卡片；生成 README 片段 | 主页显示卡片，每小时自动更新 |
 | **M5 开源打包** | 中英文 README、LICENSE、合成日志测试、PyPI | 他人照 README 可装好 |
 
 M1 实测结果（2026-10-23，主机 laptop + 两台服务器经 ssh）：
-- 代码：`collector/scan.py`（扫描与解析，同一份源码既在主机本地调用，也经 ssh 发给远端 `python3 -I -B -` 执行）、`collector/collector.py`（中央 usage.db、调度、导出）、`collector/import_cc_switch.py`。
+- 代码（当时位于 `collector/`，M3 移入 `token_stats/`）：scan.py（扫描与解析，同一份源码既在主机本地调用，也经 ssh 发给远端 `python3 -I -B -` 执行）、中央 usage.db 与调度、CC Switch 导入。
 - 用日志副本模拟三台机器写入同一个库并导入 CC Switch：各机器 × agent 与 ccusage 对账结果与第 6 节相同；合计 JSON 等于按机器选来源后之和，不含机器信息；第二、三次运行不新增行、不改写文件。
 - 传输等价：同一批日志直接调用 scan() 与经 `python3 -` 执行，产出的 52524 个事件逐个相同；带读取进度再跑，570 个文件全部跳过。发给远端的程序连同进度约 140 KB。
 - 真实机器：ssh 实测结果与日志副本在重叠日期（服务器 09-28 ~ 10-22、laptop 全部日期）逐日、逐模型完全一致。首次全量约 52 秒，之后每次约 6.5 秒（主要是 ssh 连接）。
 - 远端无写入：扫描后在两台服务器上查找此后新增或修改的文件，只有 ssh 登录本身产生的系统日志（journal、btmp，以及系统登录时刷新的信息缓存），没有 .pyc 或任何本项目的文件。
 - 新发现：server-1 上也有 Codex 日志（07-16 ~ 07-26，1824 次请求），旧架构只采集了它的 Claude Code；新架构默认每台机器两种 agent 都扫，自动补上，与 laptop 的 Codex 无主键冲突。
 
-M1 期间代码沿用 `collector/`，包结构在 M3 定稿。开发期本地 `archive/`（阶段一的日志副本）已于 2026-10-23 删除。
+M3 实测结果（2026-10-23，Mac 上用临时家目录模拟首次安装，日志与 CC Switch 用符号链接指向真实目录，远端为两台真实服务器）：
+- 试用模式（`token-stats`）：空家目录下不崩溃、卡片显示“暂无数据”；读真实日志约 8 秒，不创建配置和数据目录。
+- `init` 全流程约 44 秒：两台远端连接与 Python 版本检查通过，导入 CC Switch，首次采集、导出、渲染、备份。与 M2 的结果相比，10-22 及以前的 170 个日数据文件逐字节一致；CC Switch 原库校验和与目录列表不变。
+- 实时 CC Switch 已把 09-21 的逐请求记录汇总成日汇总行（快照时 160 汇总行 + 8 逐请求，现在 163 + 0），四项总量不变——印证了“只能导入一次”的保护。
+- 第二次 `sync` 只读新增日志、当天不重复备份；`rename` 后读取进度对得上，不重读文件；自动合并与手动 `merge` 重复执行写入 0 行，合并后的日数据与原库一致。
+- 改时区为 America/New_York：122 个日期文件变化、多余的日期文件被删除；改回后与改之前逐字节一致。美东夏令时切换前后的日期换算正确。
+- 过期提醒、备份只保留 7 份、同时运行两个 `sync` 时第二个被拒，均符合预期；中文和 GBK 外字符的截断不再崩溃。
+- 未实测：定时任务的实际安装（会装进真实的 launchd，留到正式部署）、systemd / crontab 安装、Windows 上的全部功能。
+
+代码位于 `token_stats/`（第 2 节）。开发期本地 `archive/`（阶段一的日志副本）已于 2026-10-23 删除。
 
 ## 5. usage.db（主机上唯一的一份）
 
@@ -223,7 +243,7 @@ CREATE TABLE machines (
 
 ## 8. CC Switch 导入（可选，一次性）
 
-只读打开 CC Switch 数据库快照（`sqlite3 -readonly 原库 ".backup 快照"`），不碰原库；导入主机的 usage.db，machine = 'local'，source = `'cc-switch'`。一个 usage.db 只应从一份快照导入一次：CC Switch 之后可能把逐请求记录汇总成日汇总行并删除明细，用新快照再导入会重复计数。导入脚本会检查：库中已有 cc-switch 数据就拒绝导入，不提供强制选项。
+`token-stats import-cc-switch`（`init` 中也会询问）：只读打开 CC Switch 原库，用 SQLite 备份接口复制一份快照，再从快照导入，不改动原库；导入主机的 usage.db，machine = 配置的本机名，source = `'cc-switch'`。一个 usage.db 只应从一份快照导入一次：CC Switch 之后可能把逐请求记录汇总成日汇总行并删除明细，用新快照再导入会重复计数。导入脚本会检查：库中已有 cc-switch 数据就拒绝导入，不提供强制选项。
 
 CC Switch 中的数据（2026-10-23 快照）：
 - `usage_daily_rollups`：较早的逐请求记录被汇总成"日期 × 应用 × 供应商 × 模型 × 请求模型 × 计价模型"的日汇总，明细已删除。
@@ -241,9 +261,9 @@ CC Switch 中的数据（2026-10-23 快照）：
 
 ## 9. 卡片
 
-`python3 scripts/render.py [--data data/daily] [--out output] [--metric all|effective]`：生成四张静态 SVG，每张亮色、暗色各一份（`-dark` 后缀），外加本地预览页 `preview.html`（两种背景并排）。README 用 `<picture>` 按访客主题切换。
+`token-stats sync` 渲染到数据目录的 `cards/`（试用模式渲染到当前目录的 `token-stats-cards/`）：四张静态 SVG，每张亮色、暗色各一份（`-dark` 后缀），外加本地预览页 `preview.html`（两种背景并排）。没有数据时卡片显示“暂无数据”。README 用 `<picture>` 按访客主题切换。
 
-口径 metric：默认 all = 四项全加，与 Codex、ccusage 的“总 token”一致；effective = input + cache_write + output，不含缓存读取。缓存读取通常占 90% 以上，两者相差一个数量级；统计卡片底部注明当前口径。M3 起放进配置文件。
+口径 metric：默认 all = 四项全加，与 Codex、ccusage 的“总 token”一致；effective = input + cache_write + output，不含缓存读取。缓存读取通常占 90% 以上，两者相差一个数量级；统计卡片底部注明当前口径。由配置文件的 `metric` 指定。
 
 | 文件 | 内容 | 时间范围 | 尺寸 |
 |---|---|---|---|
@@ -257,7 +277,7 @@ CC Switch 中的数据（2026-10-23 快照）：
 设计规则（按 dataviz 规范）：
 - 静态 SVG，不含脚本，背景透明，1 px 细边框圆角卡片。GitHub README 中悬停无效，所以数值直接写在图上；仓库里的日数据 JSON 即表格形式的原始数据。
 - 文字只用文字色（主色 / 次要色），不用数据色；数据色只用在色块、色段、条形上。
-- 环形图：段间 2 px 背景间隙，从 12 点方向顺时针，最多 6 段（前 5 名 + 其他）。颜色按名次分配。
+- 环形图：段间 2 px 背景间隙，从 12 点方向顺时针，最多 6 段（前 5 名 + 其他）。Claude、GPT 系列各自用量最高的模型用 Anthropic / OpenAI 的厂商色（同排行图），并让出相近的分类色（橙让蜜桃、绿让薄荷）；其余模型按名次依次取剩下的分类色。厂商色与其余颜色的相邻关系随数据变化，只保证正常视力可区分，未按分类色的 ΔE 标准验证。
 - 条形图：按厂商上色（颜色跟着厂商走，不随排名变化），底部图例只列前 8 名中出现的厂商；粗 10 px，基线端直角、数值端 4 px 圆角。
 - 热力图：0 单独一档，非零日按四分位分 4 档（与 GitHub 相同）。
 - 模型名放不下时按字号估算宽度截断加省略号（生成时无法测量文字）。
@@ -289,7 +309,7 @@ CC Switch 中的数据（2026-10-23 快照）：
 ## 11. 运行环境
 
 - 主机和远端：Python ≥ 3.9，只用标准库（含 sqlite3 模块）。主机另需 ssh 客户端和能推送到用户仓库的 git。
-- 不需要 Node：渲染已在 M2 改写为 Python（`scripts/render.py`），Node 脚本与 package.json、config.yaml 已删除；口径用 `--metric` 指定，时区暂与 collector 一样固定 +8，M3 统一放进配置。
+- 不需要 Node：渲染已改写为 Python（`token_stats/render.py`），Node 脚本与 package.json、config.yaml 已删除。口径、时区都在配置文件中。
 - 对账基准（仅开发期）：`npx ccusage@20.0.41 {claude|codex} daily --json -z Asia/Shanghai -O`。用 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` 指定日志目录，`-O` 表示用缓存的价格，不联网拉价格表。
 
 阶段一的 ccusage 基准总量（2026-10-23 的日志副本，server-1 当时仍在增长）：

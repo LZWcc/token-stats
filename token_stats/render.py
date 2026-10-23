@@ -1,18 +1,14 @@
-#!/usr/bin/env python3
-"""token-stats 卡片渲染：从 data/daily 生成四张静态 SVG 卡片（亮色、暗色各一份）和本地预览页。
+"""卡片渲染：从日数据生成四张静态 SVG 卡片（亮色、暗色各一份）和本地预览页。
 
 热力图统计最近一年；模型占比环形图、模型排行条形图、统计卡片统计全部时间。
 配色按 dataviz 规范在 GitHub 亮 / 暗背景下验证过，见 PROJECT.md 第 9 节。只用标准库，兼容 Python 3.9。
 """
-import argparse
 import glob
 import json
 import os
-from datetime import datetime, timedelta, timezone
+import unicodedata
+from datetime import datetime, timedelta
 from xml.sax.saxutils import escape
-
-# 与 collector 一致的固定 +8；M3 改为读配置
-TZ = timezone(timedelta(hours=8))
 
 THEMES = {
     'light': {'text': '#1f2328', 'muted': '#59636e', 'border': '#d1d9e0',
@@ -26,6 +22,8 @@ THEMES = {
 # 其余归入“其他厂商”——品牌色多了必然撞色（蓝色系尤其多），见 PROJECT.md 第 9 节
 VENDORS = (('Anthropic', ('claude',), '#d97757'), ('OpenAI', ('gpt', 'codex', 'o1', 'o3', 'o4'), '#10a37f'),
            ('Google', ('gemini',), '#7faefd'), ('DeepSeek', ('deepseek',), '#4d6bfe'))
+# 环形图里这两家用量最高的模型用品牌色，并让出与品牌色相近的分类色（橙 ≈ 蜜桃、绿 ≈ 薄荷）：厂商 → 让出的 series 下标
+DONUT_BRANDS = {'Anthropic': 4, 'OpenAI': 0}
 FONT = "system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif"
 PAD = 16
 STEP, CELL = 13, 10                     # 热力图格子步长、边长
@@ -42,10 +40,22 @@ def human(n):
     return str(n)
 
 
+def text_w(s, size):
+    """估算文字宽度：中文等全角字符约 1 em，其余约 0.6 em。SVG 无法在生成时测量文字。"""
+    return sum(1.0 if unicodedata.east_asian_width(ch) in 'WF' else 0.6 for ch in s) * size
+
+
 def fit(name, px, size):
-    """按字号估算宽度（拉丁字符约 0.6em），放不下就截断加省略号。SVG 无法在生成时测量文字。"""
-    n = int(px / (size * 0.6))
-    return name if len(name) <= n else name[:n - 1] + '…'
+    """放不下就截断加省略号。"""
+    if text_w(name, size) <= px:
+        return name
+    while name and text_w(name + '…', size) > px:
+        name = name[:-1]
+    return name + '…'
+
+
+def no_data(t, x, y):
+    return '<text x="%d" y="%d" font-size="12" text-anchor="middle" fill="%s">暂无数据</text>\n' % (x, y, t['muted'])
 
 
 def card(w, h, t, title, body):
@@ -114,11 +124,21 @@ def ranked(models, n):
 
 def donut(t, models, height):
     top, rest, count = ranked(models, TOP_N_DONUT)
-    segs = [(name, v, t['series'][i]) for i, (name, v) in enumerate(top)]
+    first = {}
+    for name, _ in top:
+        vname, color = vendor(t, name)
+        if vname in DONUT_BRANDS:
+            first.setdefault(vname, (name, color))
+    picked = dict(first.values())
+    pool = iter([c for i, c in enumerate(t['series']) if i not in {DONUT_BRANDS[v] for v in first}])
+    segs = [(name, v, picked[name] if name in picked else next(pool)) for name, v in top]
     if rest:
         segs.append(('其他 %d 个模型' % (count - TOP_N_DONUT), rest, t['other']))
     total = sum(v for _, v, _ in segs)
     cx, cy, r, width = PAD + 66, 52 + (height - 52 - PAD) // 2, 52, 18
+    if not segs:
+        ring = '<circle cx="%d" cy="%d" r="%d" fill="none" stroke="%s" stroke-width="%d"/>\n' % (cx, cy, r, t['heat'][0], width)
+        return card(NARROW, height, t, '模型占比' + subtitle(t, '全部时间'), ring + no_data(t, cx, cy + 4))
     circ = 2 * 3.141592653589793 * r
     out = []
     offset = 0.0
@@ -154,6 +174,8 @@ def vendor(t, model):
 
 def bars(t, models, height):
     top, _, count = ranked(models, TOP_N_BAR)
+    if not top:
+        return card(NARROW, height, t, '模型排行' + subtitle(t, '全部时间'), no_data(t, NARROW // 2, height // 2 + 10))
     name_w, value_w, legend_h = 118, 44, 22
     x0 = PAD + name_w + 8
     max_w = NARROW - PAD - value_w - x0
@@ -177,9 +199,9 @@ def bars(t, models, height):
     x, y = PAD, height - PAD - 10
     for vname in seen:
         color = vendor(t, next(n for n, _ in top if vendor(t, n)[0] == vname))[1]
-        out.append('<rect x="%d" y="%d" width="10" height="10" rx="2" fill="%s"/>' % (x, y, color))
-        out.append('<text x="%d" y="%d" font-size="11" fill="%s">%s</text>' % (x + 14, y + 9, t['muted'], vname))
-        x += 14 + len(vname.encode('gbk')) * 6 + 14   # 估算宽度：汉字按 2 个拉丁字符计
+        out.append('<rect x="%.1f" y="%d" width="10" height="10" rx="2" fill="%s"/>' % (x, y, color))
+        out.append('<text x="%.1f" y="%d" font-size="11" fill="%s">%s</text>' % (x + 14, y + 9, t['muted'], vname))
+        x += 14 + text_w(vname, 11) + 14
     note = '全部时间' + (' · 前 %d / 共 %d 个' % (TOP_N_BAR, count) if count > TOP_N_BAR else '')
     return card(NARROW, height, t, '模型排行' + subtitle(t, note), '\n'.join(out) + '\n')
 
@@ -240,38 +262,33 @@ PREVIEW = """<!doctype html>
 """
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--data', default='data/daily', help='日数据目录（collector 的 --out）')
-    ap.add_argument('--out', default='output', help='输出目录')
-    ap.add_argument('--metric', choices=('all', 'effective'), default='all',
-                    help='all = 四项全加（默认，与 Codex、ccusage 的“总 token”一致）；effective = 不含缓存读取')
-    args = ap.parse_args()
-
-    value = lambda x: x['input'] + x['cache_write'] + x['output'] + (x['cache_read'] if args.metric == 'all' else 0)
-    days, models = {}, {}
-    for p in glob.glob(os.path.join(args.data, '*.json')):
+def load(daily_dir, metric):
+    """读取日数据：返回 (每天总量, 每个模型总量, 每个 agent 总量)，按口径 metric 计算。"""
+    value = lambda x: x['input'] + x['cache_write'] + x['output'] + (x['cache_read'] if metric == 'all' else 0)
+    days, models, agents = {}, {}, {}
+    for p in glob.glob(os.path.join(daily_dir, '*.json')):
         with open(p, encoding='utf-8') as f:
             d = json.load(f)
         days[d['date']] = value(d)
-        for m, v in d['models'].items():
-            models[m] = models.get(m, 0) + value(v)
-    models = {m: v for m, v in models.items() if v > 0}
-    today = datetime.now(TZ).date()
+        for part, acc in (('models', models), ('agents', agents)):
+            for k, v in d.get(part, {}).items():
+                acc[k] = acc.get(k, 0) + value(v)
+    return days, {m: v for m, v in models.items() if v > 0}, agents
 
-    os.makedirs(args.out, exist_ok=True)
+
+def render_cards(daily_dir, out_dir, metric, today):
+    """生成四张卡片（亮暗各一份）和 preview.html，返回预览页路径。"""
+    days, models, _ = load(daily_dir, metric)
+    os.makedirs(out_dir, exist_ok=True)
     pair_h = 52 + TOP_N_BAR * 23 + 22 + PAD   # 环形图与排行等高，便于并排；22 为排行图的厂商图例
     names = ('heatmap', 'stats', 'models-donut', 'models-bar')
     for theme, t in THEMES.items():
-        svgs = (heatmap(t, days, today), stats(t, days, models, today, args.metric), donut(t, models, pair_h), bars(t, models, pair_h))
+        svgs = (heatmap(t, days, today), stats(t, days, models, today, metric), donut(t, models, pair_h), bars(t, models, pair_h))
         for name, svg in zip(names, svgs):
-            with open(os.path.join(args.out, name + ('-dark' if theme == 'dark' else '') + '.svg'), 'w', encoding='utf-8') as f:
+            with open(os.path.join(out_dir, name + ('-dark' if theme == 'dark' else '') + '.svg'), 'w', encoding='utf-8') as f:
                 f.write(svg)
     imgs = lambda suffix: ''.join('<img%s src="%s%s.svg">' % (' class="wide"' if n in ('heatmap', 'stats') else '', n, suffix) for n in names)
-    with open(os.path.join(args.out, 'preview.html'), 'w', encoding='utf-8') as f:
+    preview = os.path.join(out_dir, 'preview.html')
+    with open(preview, 'w', encoding='utf-8') as f:
         f.write(PREVIEW % (imgs(''), imgs('-dark')))
-    print('%d 天、%d 个模型 → %s/{%s}{,-dark}.svg 与 preview.html' % (len(days), len(models), args.out, ','.join(names)))
-
-
-if __name__ == '__main__':
-    main()
+    return preview

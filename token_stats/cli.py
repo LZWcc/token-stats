@@ -320,7 +320,8 @@ def cmd_init(args):
     conn.close()
     held.close()
 
-    if ask_yes('\n安装定时任务（%s），每小时自动运行 token-stats sync？' % schedule.kind(), True):
+    if ask_yes('\n安装定时任务（%s），每天 %02d:%02d 自动运行 token-stats sync？不装也可以，'
+               '但至少每 30 天手动运行一次 sync，否则 Claude Code 日志会在入库前被清理' % (schedule.kind(), schedule.HOUR, schedule.MINUTE), False):
         try:
             print(schedule.install())
         except (RuntimeError, OSError) as e:

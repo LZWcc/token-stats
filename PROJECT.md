@@ -20,7 +20,7 @@
 | 命令 | 作用 |
 |---|---|
 | `token-stats` | 先统计：零配置，只扫本机，用临时库（不写任何文件到数据目录），终端打印汇总，生成卡片到当前目录的 `token-stats-cards/` 并打开预览页 |
-| `token-stats init` | 向导：本机起名 → 从 `~/.ssh/config` 列出主机供勾选（只读不改）→ 逐台检查免密连接和远端 Python 版本 → 检测到 CC Switch 时询问是否导入（先做只读快照）→ 写配置 → 首次全量采集 → 询问后安装定时任务 |
+| `token-stats init` | 向导：本机起名 → 从 `~/.ssh/config` 列出主机供勾选（只读不改）→ 逐台检查免密连接和远端 Python 版本 → 检测到 CC Switch 时询问是否导入（先做只读快照）→ 写配置 → 首次全量采集 → 询问是否安装定时任务（可选，默认否） |
 | `token-stats sync` | 采集本机和各远端 → 自动合并配置里的其他库 → 导出 → 渲染。定时任务调用的就是它（推送到 GitHub 在 M4） |
 | `token-stats doctor` | 每台机器：能否连上、远端 Python 版本、上次成功时间、上次错误、行数；定时任务是否已安装；zstd 是否可用 |
 | `token-stats merge <usage.db> --as <名字>` | 把另一台机器（如连不上的 Windows）自己的 usage.db 合并进来，机器名改为指定名字；只合并请求，不合并对方的读取进度；可重复执行，靠主键去重 |
@@ -60,7 +60,12 @@
 
 - 本机（主机）支持 macOS、Linux、Windows。文件锁按平台实现（Unix 用 fcntl，Windows 用 msvcrt）。
 - 时区：有 zoneinfo 和系统时区数据时按配置的时区划分日期；Windows 上没有系统时区数据（标准库不带 tzdata），退回系统本地时区。
-- 定时任务（每小时）：macOS 用 launchd；Linux 用 systemd 用户定时器，没有时用 crontab；Windows 用任务计划程序（schtasks）。安装前都先询问。
+- 推荐手动运行 `sync`。定时任务可选（`init` 中询问，默认不装），每天 12:00 运行（白天主机大概率开着）：
+  - macOS：launchd `StartCalendarInterval` + `RunAtLoad`。睡眠中错过的在唤醒后补跑（launchd 文档明确的行为），关机错过的由下次登录时的 `RunAtLoad` 补上；一天最多运行两次，`sync` 是增量的，不会重复计数。不用 `StartInterval`：它从加载时计时，睡眠期间是否计时文档没有写明。
+  - Linux：systemd 用户定时器（`Persistent=true`，错过的在开机后补跑）；没有 systemd 时用 crontab（不补跑）。
+  - Windows：任务计划程序（schtasks，不补跑）。
+- 不装定时任务时手动运行 `sync`。唯一的硬约束：每台机器至少每 30 天被 `sync` 一次，否则 Claude Code 日志会在入库前被 30 天保留期清理（超过 7 天未成功采集时 `sync` 和 `doctor` 会提醒）。要以后再装定时任务，重新运行 `init`，各项默认沿用原值。
+- macOS 上程序位于 `~/Documents` 等受隐私保护（TCC）的目录时，launchd 启动的后台进程可能无权读取，因此要装定时任务时程序应放在数据目录下的 `app/`（与安装脚本的位置一致）。
 - Windows 相关部分（本地运行、任务计划程序、作为 ssh 远端）**尚未在 Windows 上实测**。
 
 ### 包结构
@@ -132,7 +137,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/<�
 
 - **服务器零安装、零写入**：主机通过 ssh 把解析脚本从 stdin 发给远端 `python3 -`，同时发去该机器各日志文件的读取进度；远端只解析新增部分，把新请求和新进度逐行打印回来。远端不写任何文件，日志只读。远端只需要 sshd、python3 ≥ 3.9。
 - **服务器不需要 git 和 GitHub 凭据**：入库、导出、渲染、推送都在主机上完成，推送用主机上已有的 git 登录。
-- 每小时只传回新增请求（每条几十字节），不复制日志。
+- 每次只传回新增请求（每条几十字节），不复制日志。
 - ssh 一律加 `-o BatchMode=yes -o ConnectTimeout=15 -o RemoteCommand=none -o RequestTTY=no`：不交互、不卡住，并覆盖用户 ssh 配置中的 RemoteCommand / RequestTTY。不修改任何 ssh 配置。
 - 本机总是扫描，机器名取配置的 `machine`（默认 `local`，与 CC Switch 导入共用，保证按机器选来源时对得上）；远端由配置的 `remotes` 指定，记录用的机器名为 `name`（默认等于 ssh 主机名）。
 - 按机器隔离失败：某台连不上不影响其他机器，`doctor` 显示每台的上次成功时间。
@@ -149,7 +154,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/<�
 | ✅ **M1 主机拉取架构** | 中央 usage.db（machine 列、跨机器去重）；ssh 远程解析并回传；导出改为每天一个文件 | 三台真实机器实测，各机器 × agent 与 ccusage 对账一致；重复运行不新增行、不重写文件；远端不留任何文件 |
 | ✅ **M2 卡片** | 渲染改为 Python；热力图、模型占比环形图、模型排行柱状图、统计卡片，亮暗两色；预览页 | 预览页四张卡片正确，数字与 usage.db 一致 |
 | ✅ **M3 命令行工具** | 第 2 节的全部命令、配置文件、数据目录、跨平台、定时任务；包结构改为 `token_stats/` | 用全新的临时家目录模拟首次安装，`init` 到出图全程跑通；在本机 `sync` 的结果与 M2 一致；`merge` 重复执行不重复计数；`rename` 后不重读文件 |
-| **M4 发布** | `sync` 推送 data 和卡片；生成 README 片段 | 主页显示卡片，每小时自动更新 |
+| **M4 发布** | `sync` 推送 data 和卡片；生成 README 片段 | `sync` 后主页显示最新卡片；装了定时任务时每天自动更新 |
 | **M5 开源打包** | 安装脚本（`install.sh`、`install.ps1`，见第 2 节“安装”）、中英文 README、LICENSE、合成日志测试 | 他人照 README 用一条命令装好，直接运行 `token-stats` |
 
 M1 实测结果（2026-10-23，主机 laptop + 两台服务器经 ssh）：

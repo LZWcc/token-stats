@@ -13,16 +13,71 @@
 
 与现有项目的区别（2026-10 调研）：tokscale 需要把数据上传到它的服务；token-history 每台机器都要安装并依赖 ccusage，按天快照、超过 7 天只增不减。本项目：只在一台主机上安装，服务器零安装；逐请求账本永久保存、跨机器去重；只依赖 Python 标准库；支持导入 CC Switch 历史。
 
-## 2. 用户使用流程（M3 实现，命令名为草案）
+## 2. 命令行与配置（M3）
 
-```bash
-uvx token-stats              # 或 pipx run token-stats：只统计本机，打印汇总，生成全部卡片和预览页
-token-stats init             # 向导：选择要加入的服务器（读取 ~/.ssh/config 中的主机，只读不改）、
-                             #       发布到哪个 GitHub 仓库、是否导入 CC Switch、安装定时任务、首次运行、
-                             #       打印可直接贴进 README 的 Markdown
-token-stats sync             # 拉取 → 入库 → 导出 JSON → 渲染 → 推送（定时任务调用的就是它）
-token-stats doctor           # 每台机器能否连上、上次成功时间、行数等（只在本地显示）
+### 命令
+
+| 命令 | 作用 |
+|---|---|
+| `token-stats` | 先统计：零配置，只扫本机，用临时库（不写任何文件到数据目录），终端打印汇总，生成卡片到当前目录的 `token-stats-cards/` 并打开预览页 |
+| `token-stats init` | 向导：本机起名 → 从 `~/.ssh/config` 列出主机供勾选（只读不改）→ 逐台检查免密连接和远端 Python 版本 → 检测到 CC Switch 时询问是否导入（先做只读快照）→ 写配置 → 首次全量采集 → 询问后安装定时任务 |
+| `token-stats sync` | 采集本机和各远端 → 自动合并配置里的其他库 → 导出 → 渲染。定时任务调用的就是它（推送到 GitHub 在 M4） |
+| `token-stats doctor` | 每台机器：能否连上、远端 Python 版本、上次成功时间、上次错误、行数；定时任务是否已安装；zstd 是否可用 |
+| `token-stats merge <usage.db> --as <名字>` | 把另一台机器（如连不上的 Windows）自己的 usage.db 合并进来，机器名改为指定名字；只合并请求，不合并对方的读取进度；可重复执行，靠主键去重 |
+| `token-stats import-cc-switch` | 导入 CC Switch 历史（init 中也会询问），规则见第 8 节 |
+| `token-stats rename <旧名> <新名>` | 改机器名：同时更新 requests / files / machines 三张表，否则改名后读取进度对不上、会把所有文件重读一遍 |
+
+### 配置文件
+
+`~/.config/token-stats/config.json`（Windows：`%APPDATA%\token-stats\config.json`），JSON 格式（Python 3.9 没有内置 TOML 解析）：
+
+```json
+{
+  "machine": "mac",
+  "remotes": [
+    { "ssh": "server-a", "name": "server-1", "python": "python3" }
+  ],
+  "merge": [
+    { "path": "~/OneDrive/token-stats/win-pc.db", "name": "win-pc" }
+  ],
+  "timezone": "Asia/Shanghai",
+  "metric": "all"
+}
 ```
+
+- `machine`：本机名，默认 `local`。collector 与 CC Switch 导入都用它，保证按机器选来源时对得上。
+- `remotes`：经 ssh 拉取的远端。`ssh` 是 `~/.ssh/config` 里的主机名；`name` 是记录用的机器名，默认等于 `ssh`；`python` 是远端的 Python 命令，默认 `python3`（Windows 远端通常是 `python`）。
+- `merge`：每次 `sync` 自动合并的其他库，适合放在网盘同步文件夹里：那台机器自己运行 token-stats，把 usage.db 同步过来。
+- `timezone`：划分日期用，默认取系统时区。
+- `metric`：卡片口径，`all`（默认）或 `effective`。
+- 机器名只存在本地 usage.db 中，不进入公开数据，可以随意起。一台机器的名字确定后不要直接改配置，用 `rename`。
+
+### 数据目录
+
+`~/.local/share/token-stats/`（Windows：`%LOCALAPPDATA%\token-stats\`）：`usage.db`、`usage.db.lock`、`daily/`（导出的日数据）、`cards/`（卡片）、`run.log`。
+
+### 跨平台
+
+- 本机（主机）支持 macOS、Linux、Windows。文件锁按平台实现（Unix 用 fcntl，Windows 用 msvcrt）。
+- 时区：有 zoneinfo 和系统时区数据时按配置的时区划分日期；Windows 上没有系统时区数据（标准库不带 tzdata），退回系统本地时区。
+- 定时任务（每小时）：macOS 用 launchd；Linux 用 systemd 用户定时器，没有时用 crontab；Windows 用任务计划程序（schtasks）。安装前都先询问。
+- Windows 相关部分（本地运行、任务计划程序、作为 ssh 远端）**尚未在 Windows 上实测**。
+
+### 包结构
+
+`collector/`、`scripts/` 合并为 Python 包 `token_stats/`（`python3 -m token_stats`），为 M5 上架 PyPI 后用 `uvx` / `pipx` 安装做准备。
+
+### M3 同时修复与补充
+
+1. 时区从配置读取（默认系统时区），导出时在 Python 中逐行按时区换算日期（正确处理夏令时；SQLite 只支持固定偏移）。CC Switch 汇总行记在配置时区的当天 12:00。
+2. 导出时删除不再对应任何数据的日期文件（例如改时区后），只清理自己管理的目录。
+3. 没有任何数据时渲染不崩溃，卡片显示“暂无数据”（M2 版本会除以零）。
+4. 文字宽度按 `unicodedata.east_asian_width` 估算（中文按 1 em、拉丁字符按 0.6 em），替换 M2 中遇到 GBK 外字符会崩溃的写法；截断同样按此估算。
+5. 文件锁跨平台（Unix 用 fcntl，Windows 用 msvcrt）。
+6. 远端 Python 命令可配置（见配置文件 `python` 字段）。
+7. `sync` 与 `doctor` 检查每台机器上次成功的时间，超过 7 天醒目提示（主机长期不运行时，服务器上的日志会在入库前被清理）。
+8. `sync` 每天自动备份 usage.db 一份到数据目录的 `backups/`，保留最近 7 份（usage.db 是唯一事实来源）。
+9. 更新本地 `LOCAL.md`：新架构下机器名不公开，“公开 id 对应真实机器”的说明已过时。
 
 ## 3. 架构：主机拉取
 
@@ -56,7 +111,7 @@ token-stats doctor           # 每台机器能否连上、上次成功时间、�
 |---|---|---|
 | ✅ **M1 主机拉取架构** | 中央 usage.db（machine 列、跨机器去重）；ssh 远程解析并回传；导出改为每天一个文件 | 三台真实机器实测，各机器 × agent 与 ccusage 对账一致；重复运行不新增行、不重写文件；远端不留任何文件 |
 | ✅ **M2 卡片** | 渲染改为 Python；热力图、模型占比环形图、模型排行柱状图、统计卡片，亮暗两色；预览页 | 预览页四张卡片正确，数字与 usage.db 一致 |
-| **M3 命令行工具** | `token-stats`（一次性统计）、`init`、`sync`、`doctor`；配置文件；定时任务安装 | 在一台干净的机器上，几条命令完成从安装到出图 |
+| **M3 命令行工具** | 第 2 节的全部命令、配置文件、数据目录、跨平台、定时任务；包结构改为 `token_stats/` | 用全新的临时家目录模拟首次安装，`init` 到出图全程跑通；在本机 `sync` 的结果与 M2 一致；`merge` 重复执行不重复计数；`rename` 后不重读文件 |
 | **M4 发布** | `sync` 推送 data 和卡片；生成 README 片段 | 主页显示卡片，每小时自动更新 |
 | **M5 开源打包** | 中英文 README、LICENSE、合成日志测试、PyPI | 他人照 README 可装好 |
 
@@ -68,7 +123,7 @@ M1 实测结果（2026-10-23，主机 laptop + 两台服务器经 ssh）：
 - 远端无写入：扫描后在两台服务器上查找此后新增或修改的文件，只有 ssh 登录本身产生的系统日志（journal、btmp，以及系统登录时刷新的信息缓存），没有 .pyc 或任何本项目的文件。
 - 新发现：server-1 上也有 Codex 日志（07-16 ~ 07-26，1824 次请求），旧架构只采集了它的 Claude Code；新架构默认每台机器两种 agent 都扫，自动补上，与 laptop 的 Codex 无主键冲突。
 
-M1 期间代码沿用 `collector/`，包结构在 M3 定稿。开发期本地 `archive/`（阶段一的日志副本，不提交）在 M1 实测通过后删除。
+M1 期间代码沿用 `collector/`，包结构在 M3 定稿。开发期本地 `archive/`（阶段一的日志副本）已于 2026-10-23 删除。
 
 ## 5. usage.db（主机上唯一的一份）
 

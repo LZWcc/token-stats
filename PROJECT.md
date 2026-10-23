@@ -65,7 +65,7 @@
 
 ### 包结构
 
-Python 包 `token_stats/`（`python3 -m token_stats`），为 M5 上架 PyPI 后用 `uvx` / `pipx` 安装做准备：
+Python 包 `token_stats/`（`python3 -m token_stats`）；M5 起用安装脚本装好后直接运行 `token-stats`（见下方“安装”）：
 
 | 模块 | 作用 |
 |---|---|
@@ -77,6 +77,32 @@ Python 包 `token_stats/`（`python3 -m token_stats`），为 M5 上架 PyPI 后
 | `config.py` | 配置文件、数据目录、时区 |
 | `schedule.py` | 定时任务的安装与状态 |
 | `cli.py` | 各命令 |
+
+### 安装（M5）
+
+只提供安装脚本，不上 PyPI，不需要 pip / uvx / pipx。只依赖标准库，装好即可运行：
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/<账号>/token-stats/main/install.sh | sh
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/<账号>/token-stats/main/install.ps1 | iex"
+```
+
+- `<账号>` 是公开仓库所在的 GitHub 账号，M4 确定仓库后替换。
+- 与 Codex 的安装脚本不同，下载的不是独立程序，用户机器上需要 Python ≥ 3.9：macOS 由 Xcode 命令行工具提供 `/usr/bin/python3`，Linux 发行版通常自带，Windows 需自行安装。不用 PyInstaller 打包独立程序（每个平台要单独构建，体积大）。
+- 安装脚本：
+  1. 检查 `python3`（Windows：`python`）是否 ≥ 3.9，不满足就提示安装方法后退出。
+  2. 从 GitHub 下载最新 tag 的源码包（GitHub 自动生成的归档，不需要构建步骤），解压后整个替换程序目录：数据目录下的 `app/`。
+  3. 生成启动脚本：macOS / Linux 为 `~/.local/bin/token-stats`，Windows 为 `%LOCALAPPDATA%\token-stats\bin\token-stats.cmd`，内容是设置 `PYTHONPATH` 为程序目录后执行 `python3 -m token_stats` 并传入全部参数。
+  4. 启动脚本所在目录不在 PATH 中时，只打印需要添加的那一行，不修改 `~/.zshrc`、`~/.bashrc` 或系统 PATH 等用户配置。
+- 升级：重新运行安装命令。只替换 `app/`，不动配置和 usage.db；定时任务指向的程序目录不变，不用重装。
+- 卸载：README 写明命令：先移除定时任务，再删除 `app/` 和启动脚本；配置和 usage.db 是否删除由用户决定。
+- 现有代码不依赖安装位置：定时任务按包所在目录设置 `PYTHONPATH`，远端扫描从包目录读取 `scan.py` 源码。
+- Windows 的安装脚本同样尚未在 Windows 上实测。
 
 ### M3 同时修复与补充
 
@@ -124,7 +150,7 @@ Python 包 `token_stats/`（`python3 -m token_stats`），为 M5 上架 PyPI 后
 | ✅ **M2 卡片** | 渲染改为 Python；热力图、模型占比环形图、模型排行柱状图、统计卡片，亮暗两色；预览页 | 预览页四张卡片正确，数字与 usage.db 一致 |
 | ✅ **M3 命令行工具** | 第 2 节的全部命令、配置文件、数据目录、跨平台、定时任务；包结构改为 `token_stats/` | 用全新的临时家目录模拟首次安装，`init` 到出图全程跑通；在本机 `sync` 的结果与 M2 一致；`merge` 重复执行不重复计数；`rename` 后不重读文件 |
 | **M4 发布** | `sync` 推送 data 和卡片；生成 README 片段 | 主页显示卡片，每小时自动更新 |
-| **M5 开源打包** | 中英文 README、LICENSE、合成日志测试、PyPI | 他人照 README 可装好 |
+| **M5 开源打包** | 安装脚本（`install.sh`、`install.ps1`，见第 2 节“安装”）、中英文 README、LICENSE、合成日志测试 | 他人照 README 用一条命令装好，直接运行 `token-stats` |
 
 M1 实测结果（2026-10-23，主机 laptop + 两台服务器经 ssh）：
 - 代码（当时位于 `collector/`，M3 移入 `token_stats/`）：scan.py（扫描与解析，同一份源码既在主机本地调用，也经 ssh 发给远端 `python3 -I -B -` 执行）、中央 usage.db 与调度、CC Switch 导入。
@@ -308,7 +334,7 @@ CC Switch 中的数据（2026-10-23 快照）：
 
 ## 11. 运行环境
 
-- 主机和远端：Python ≥ 3.9，只用标准库（含 sqlite3 模块）。主机另需 ssh 客户端和能推送到用户仓库的 git。
+- 主机和远端：Python ≥ 3.9，只用标准库（含 sqlite3 模块）。主机另需 ssh 客户端和能推送到用户仓库的 git；用安装脚本安装时另需 curl（Windows 为 PowerShell）。
 - 不需要 Node：渲染已改写为 Python（`token_stats/render.py`），Node 脚本与 package.json、config.yaml 已删除。口径、时区都在配置文件中。
 - 对账基准（仅开发期）：`npx ccusage@20.0.41 {claude|codex} daily --json -z Asia/Shanghai -O`。用 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` 指定日志目录，`-O` 表示用缓存的价格，不联网拉价格表。
 

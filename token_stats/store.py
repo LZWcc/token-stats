@@ -73,6 +73,7 @@ def lock(db):
             import fcntl
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
+        f.close()
         raise SystemExit('已有另一个 token-stats 进程在使用 %s，本次退出' % db)
     return f
 

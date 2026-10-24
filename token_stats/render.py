@@ -1,10 +1,11 @@
-"""卡片渲染：从日数据生成四张静态 SVG 卡片（亮色、暗色各一份）和本地预览页。
+"""卡片渲染：从日数据生成七张静态 SVG 卡片（亮色、暗色各一份）和本地预览页。
 
-热力图统计最近一年；模型占比环形图、模型排行条形图、统计卡片统计全部时间。
+热力图统计最近一年，月度用量统计最近 12 个月；模型占比环形图、模型排行条形图、统计卡片、工具对比、徽章统计全部时间。
 配色按 dataviz 规范在 GitHub 亮 / 暗背景下验证过，见 PROJECT.md 第 9 节。只用标准库，兼容 Python 3.9。
 """
 import glob
 import json
+import math
 import os
 import unicodedata
 from datetime import datetime, timedelta
@@ -24,6 +25,10 @@ VENDORS = (('Anthropic', ('claude',), '#d97757'), ('OpenAI', ('gpt', 'codex', 'o
            ('Google', ('gemini',), '#7faefd'), ('DeepSeek', ('deepseek',), '#4d6bfe'))
 # 环形图里这两家用量最高的模型用品牌色，并让出与品牌色相近的分类色（橙 ≈ 蜜桃、绿 ≈ 薄荷）：厂商 → 让出的 series 下标
 DONUT_BRANDS = {'Anthropic': 4, 'OpenAI': 0}
+# agent 的颜色取对应厂商的颜色（与排行图一致），颜色跟着工具走；未知的 agent 用“其他”的灰色
+AGENT_NAMES = {'claude-code': ('Claude Code', 'Anthropic'), 'codex': ('Codex', 'OpenAI')}
+# 徽章：左灰右绿、白字，对比度 7.5 和 5.7（≥ 4.5），亮暗两份相同
+BADGE = ('#555555', '#037465')
 FONT = "system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif"
 PAD = 16
 STEP, CELL = 13, 10                     # 热力图格子步长、边长
@@ -206,6 +211,147 @@ def bars(t, models, height):
     return card(NARROW, height, t, '模型排行' + subtitle(t, note), '\n'.join(out) + '\n')
 
 
+def agent_style(t, agent):
+    name, vname = AGENT_NAMES.get(agent, (agent, None))
+    return name, next((c for n, _, c in VENDORS if n == vname), t['other'])
+
+
+def nice(v):
+    """不小于 v 的整齐刻度上限（1、2、4、5 × 10^k），平分成两格后仍是整齐的数。"""
+    k = 10 ** math.floor(math.log10(v))
+    return next(m * k for m in (1, 2, 4, 5, 10) if m * k >= v)
+
+
+def column(x, y, w, h, color):
+    """柱子：基线端直角，数值端（顶部）4px 圆角。"""
+    r = min(4, w / 2, h / 2)
+    return ('<path d="M%.1f %.1f v%.1f a%.1f %.1f 0 0 1 %.1f %.1f h%.1f a%.1f %.1f 0 0 1 %.1f %.1f v%.1f z" fill="%s"/>'
+            % (x, y + h, -(h - r), r, r, r, -r, w - 2 * r, r, r, r, r, h - r, color))
+
+
+def monthly(t, agent_days, today):
+    # 最近 12 个月（含本月），每月按 agent 堆叠；用量大的 agent 在下面
+    months = [((today.year * 12 + today.month - 1 - i) // 12, (today.month - 1 - i) % 12 + 1) for i in range(11, -1, -1)]
+    vals = {k: {} for k in months}
+    for d, per in agent_days.items():
+        key = (int(d[:4]), int(d[5:7]))
+        if key in vals:
+            for a, v in per.items():
+                vals[key][a] = vals[key].get(a, 0) + v
+    by_agent = {}
+    for per in vals.values():
+        for a, v in per.items():
+            by_agent[a] = by_agent.get(a, 0) + v
+    order = [a for a, v in sorted(by_agent.items(), key=lambda kv: -kv[1]) if v > 0]
+    totals = [sum(vals[k].values()) for k in months]
+    height = 210
+    title = '月度用量' + subtitle(t, '最近 12 个月 · %s' % human(sum(totals)))
+    if not order:
+        return card(WIDE, height, t, title, no_data(t, WIDE // 2, height // 2 + 10))
+    left, right, top, base = PAD + 36, WIDE - PAD, 58, 178
+    slot, bw = (right - left) / 12, 24
+    peak = nice(max(totals))
+    out = []
+    # 刻度：0、一半、上限；网格线为细实线，基线用边框色
+    for i, v in enumerate((0, peak / 2, peak)):
+        y = base - (base - top) * i / 2
+        out.append('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="%s" stroke-width="1"/>'
+                   % (left, y + 0.5, right, y + 0.5, t['border'] if i == 0 else t['heat'][0]))
+        out.append('<text x="%d" y="%.1f" font-size="10" text-anchor="end" fill="%s">%s</text>' % (left - 6, y + 4, t['muted'], human(v)))
+    hi = max(range(12), key=lambda i: totals[i])
+    for i, k in enumerate(months):
+        x = left + i * slot + (slot - bw) / 2
+        y = base
+        segs = [(a, vals[k][a]) for a in order if vals[k].get(a, 0) > 0]
+        for j, (a, v) in enumerate(segs):
+            h = (base - top) * v / peak
+            last = j == len(segs) - 1
+            # 段与段之间留 2px 背景间隙；只有最上面一段是圆角的数值端
+            draw_h = max(h if last else h - 2, 1)
+            if last:
+                out.append(column(x, y - draw_h, bw, draw_h, agent_style(t, a)[1]))
+            else:
+                out.append('<rect x="%.1f" y="%.1f" width="%d" height="%.1f" fill="%s"/>' % (x, y - draw_h, bw, draw_h, agent_style(t, a)[1]))
+            y -= h
+        # 只标峰值月份和本月
+        if i in (hi, 11) and totals[i]:
+            out.append('<text x="%.1f" y="%.1f" font-size="11" text-anchor="middle" fill="%s">%s</text>'
+                       % (x + bw / 2, y - 6, t['text'], human(totals[i])))
+        out.append('<text x="%.1f" y="%d" font-size="10" text-anchor="middle" fill="%s">%s</text>'
+                   % (x + bw / 2, base + 16, t['muted'], '本月' if i == 11 else MONTHS[k[1] - 1]))
+    if len(order) > 1:   # 两个及以上 agent 才有图例，右上角从右往左排
+        x = right
+        for a in reversed(order):
+            name, color = agent_style(t, a)
+            x -= text_w(name, 11)
+            out.append('<text x="%.1f" y="26" font-size="11" fill="%s">%s</text>' % (x, t['muted'], escape(name)))
+            out.append('<rect x="%.1f" y="17" width="10" height="10" rx="2" fill="%s"/>' % (x - 14, color))
+            x -= 14 + 14
+    return card(WIDE, height, t, title, '\n'.join(out) + '\n')
+
+
+def tools(t, agent_days, today, height):
+    totals, recent, active, first = {}, {}, {}, {}
+    since = (today - timedelta(days=29)).isoformat()
+    for d in sorted(agent_days):
+        for a, v in agent_days[d].items():
+            if v <= 0:
+                continue
+            totals[a] = totals.get(a, 0) + v
+            active[a] = active.get(a, 0) + 1
+            first.setdefault(a, d)
+            if d >= since:
+                recent[a] = recent.get(a, 0) + v
+    order = sorted(totals, key=lambda a: -totals[a])
+    total = sum(totals.values())
+    title = '工具对比' + subtitle(t, '全部时间 · %s' % human(total))
+    if not total:
+        return card(NARROW, height, t, title, no_data(t, NARROW // 2, height // 2 + 10))
+    out = []
+    # 占比条：段间 2px 间隙，左端（基线）直角，右端 4px 圆角
+    x, span = PAD, NARROW - 2 * PAD
+    for j, a in enumerate(order):
+        w = span * totals[a] / total
+        last = j == len(order) - 1
+        draw_w = max(w if last else w - 2, 1)
+        color = agent_style(t, a)[1]
+        if last:
+            r = min(4, draw_w / 2)
+            out.append('<path d="M%.1f 48 h%.1f a%.1f %.1f 0 0 1 %.1f %.1f v%.1f a%.1f %.1f 0 0 1 %.1f %.1f h%.1f z" fill="%s"/>'
+                       % (x, draw_w - r, r, r, r, r, 10 - 2 * r, r, r, -r, r, -(draw_w - r), color))
+        else:
+            out.append('<rect x="%.1f" y="48" width="%.1f" height="10" fill="%s"/>' % (x, draw_w, color))
+        x += w
+    row = (height - 80 - PAD) / max(len(order), 2)   # 与环形图、排行图等高，各工具在剩余高度内均匀分布
+    for i, a in enumerate(order):
+        name, color = agent_style(t, a)
+        y = 80 + i * row
+        out.append('<rect x="%d" y="%.1f" width="10" height="10" rx="2" fill="%s"/>' % (PAD, y, color))
+        out.append('<text x="%d" y="%.1f" font-size="12" font-weight="600" fill="%s">%s</text>'
+                   % (PAD + 16, y + 9, t['text'], escape(fit(name, 150, 12))))
+        out.append('<text x="%d" y="%.1f" font-size="12" text-anchor="end" fill="%s">%s%s</text>'
+                   % (NARROW - PAD, y + 9, t['text'], human(totals[a]), subtitle(t, '%.1f%%' % (100.0 * totals[a] / total))))
+        out.append('<text x="%d" y="%.1f" font-size="11" fill="%s">近 30 天 %s · 活跃 %d 天</text>'
+                   % (PAD + 16, y + 27, t['muted'], human(recent.get(a, 0)), active[a]))
+        out.append('<text x="%d" y="%.1f" font-size="11" fill="%s">首次使用 %s</text>' % (PAD + 16, y + 43, t['muted'], first[a]))
+    return card(NARROW, height, t, title, '\n'.join(out) + '\n')
+
+
+def badge(total):
+    """shields 风格的徽章，宽度按文字估算。颜色不随主题变化。"""
+    label, value = 'AI tokens', human(total)
+    lw, vw = round(text_w(label, 11)) + 12, round(text_w(value, 11)) + 12
+    w = lw + vw
+    return ''.join([
+        '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="20" viewBox="0 0 %d 20" font-family="%s">\n' % (w, w, FONT),
+        '<clipPath id="r"><rect width="%d" height="20" rx="3"/></clipPath>\n' % w,
+        '<g clip-path="url(#r)"><rect width="%d" height="20" fill="%s"/><rect x="%d" width="%d" height="20" fill="%s"/></g>\n'
+        % (lw, BADGE[0], lw, vw, BADGE[1]),
+        '<g font-size="11" fill="#ffffff" text-anchor="middle">'
+        '<text x="%.1f" y="14">%s</text><text x="%.1f" y="14">%s</text></g>\n' % (lw / 2, label, lw + vw / 2, value),
+        '</svg>\n'])
+
+
 def streaks(days, today):
     active = sorted(d for d, v in days.items() if v > 0)
     longest = run = 0
@@ -263,31 +409,33 @@ PREVIEW = """<!doctype html>
 
 
 def load(daily_dir, metric):
-    """读取日数据：返回 (每天总量, 每个模型总量, 每个 agent 总量)，按口径 metric 计算。"""
+    """读取日数据：返回 (每天总量, 每个模型总量, 每个 agent 总量, 每天各 agent 的用量)，按口径 metric 计算。"""
     value = lambda x: x['input'] + x['cache_write'] + x['output'] + (x['cache_read'] if metric == 'all' else 0)
-    days, models, agents = {}, {}, {}
+    days, models, agents, agent_days = {}, {}, {}, {}
     for p in glob.glob(os.path.join(daily_dir, '*.json')):
         with open(p, encoding='utf-8') as f:
             d = json.load(f)
         days[d['date']] = value(d)
+        agent_days[d['date']] = {k: value(v) for k, v in d.get('agents', {}).items()}
         for part, acc in (('models', models), ('agents', agents)):
             for k, v in d.get(part, {}).items():
                 acc[k] = acc.get(k, 0) + value(v)
-    return days, {m: v for m, v in models.items() if v > 0}, agents
+    return days, {m: v for m, v in models.items() if v > 0}, agents, agent_days
 
 
 def render_cards(daily_dir, out_dir, metric, today):
-    """生成四张卡片（亮暗各一份）和 preview.html，返回预览页路径。"""
-    days, models, _ = load(daily_dir, metric)
+    """生成七张卡片（亮暗各一份）和 preview.html，返回预览页路径。"""
+    days, models, _, agent_days = load(daily_dir, metric)
     os.makedirs(out_dir, exist_ok=True)
     pair_h = 52 + TOP_N_BAR * 23 + 22 + PAD   # 环形图与排行等高，便于并排；22 为排行图的厂商图例
-    names = ('heatmap', 'stats', 'models-donut', 'models-bar')
+    names = ('heatmap', 'stats', 'monthly', 'models-donut', 'models-bar', 'agents', 'badge')
     for theme, t in THEMES.items():
-        svgs = (heatmap(t, days, today), stats(t, days, models, today, metric), donut(t, models, pair_h), bars(t, models, pair_h))
+        svgs = (heatmap(t, days, today), stats(t, days, models, today, metric), monthly(t, agent_days, today),
+                donut(t, models, pair_h), bars(t, models, pair_h), tools(t, agent_days, today, pair_h), badge(sum(days.values())))
         for name, svg in zip(names, svgs):
             with open(os.path.join(out_dir, name + ('-dark' if theme == 'dark' else '') + '.svg'), 'w', encoding='utf-8') as f:
                 f.write(svg)
-    imgs = lambda suffix: ''.join('<img%s src="%s%s.svg">' % (' class="wide"' if n in ('heatmap', 'stats') else '', n, suffix) for n in names)
+    imgs = lambda suffix: ''.join('<img%s src="%s%s.svg">' % (' class="wide"' if n in ('heatmap', 'stats', 'monthly') else '', n, suffix) for n in names)
     preview = os.path.join(out_dir, 'preview.html')
     with open(preview, 'w', encoding='utf-8') as f:
         f.write(PREVIEW % (imgs(''), imgs('-dark')))

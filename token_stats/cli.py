@@ -56,7 +56,7 @@ def ago(ms):
 
 
 def print_summary(daily_dir, metric, today):
-    days, models, agents = render.load(daily_dir, metric)
+    days, models, agents, _ = render.load(daily_dir, metric)
     if not days:
         print('还没有任何用量数据')
         return

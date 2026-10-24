@@ -6,7 +6,8 @@ import subprocess
 from .config import PATHS
 
 SUBDIR = 'token-stats'
-CARDS = (('heatmap', 'Token 用量'), ('stats', 'Token 统计'), ('models-donut', '模型占比'), ('models-bar', '模型排行'))
+CARDS = (('heatmap', 'Token 用量'), ('stats', 'Token 统计'), ('monthly', '月度用量'), ('models-donut', '模型占比'),
+         ('models-bar', '模型排行'), ('agents', '工具对比'), ('badge', 'AI tokens'))
 # 自动提交的作者不关联任何 GitHub 账号，不计入用户的贡献图；用 -c 传入，不改用户的 git 配置。
 # 关闭签名：用户全局开启 commit.gpgsign 时，会用他的密钥给这个作者签名。克隆空仓库时本地分支跟随远端 HEAD（GitHub 上即仓库的默认分支），init.defaultBranch 只在远端不告知 HEAD 时起作用
 GIT_OPTS = ['-c', 'user.name=token-stats', '-c', 'user.email=token-stats@localhost', '-c', 'commit.gpgsign=false',

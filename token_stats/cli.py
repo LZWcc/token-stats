@@ -3,6 +3,7 @@ import argparse
 import os
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 import webbrowser
@@ -373,6 +374,8 @@ def cmd_init(args):
 
 
 def main(argv=None):
+    for s in (sys.stdout, sys.stderr):   # 输出重定向时默认用本地编码（Windows 上常为 cp1252），中文会报错
+        s.reconfigure(encoding='utf-8')
     ap = argparse.ArgumentParser(prog='token-stats', description='汇总多台机器上 Claude Code 与 Codex 的 token 用量，生成 GitHub 主页卡片。'
                                  '不带子命令时只统计本机、不写入数据目录。')
     ap.add_argument('--no-open', action='store_true', help='不带子命令时：生成卡片后不自动打开预览页')

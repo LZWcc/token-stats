@@ -47,7 +47,11 @@ jobs:
           $cmd = "$env:LOCALAPPDATA\token-stats\bin\token-stats.cmd"
           & $cmd no-such-command
           if ($LASTEXITCODE -ne 2) { throw "launcher exit code: expected 2, got $LASTEXITCODE" }
-          $out = "y`n`n" | & $cmd uninstall 2>&1 | Out-String
+          # 回答写进不带 BOM 的文件再重定向：PowerShell 管道写给原生程序时可能带 BOM，Python 读到的第一行不是 y
+          Write-Host "OutputEncoding: $($OutputEncoding.WebName), BOM bytes: $($OutputEncoding.GetPreamble().Length)"
+          $answers = Join-Path $env:RUNNER_TEMP 'answers.txt'
+          [IO.File]::WriteAllText($answers, "y`r`n`r`n")
+          $out = cmd /c "$cmd uninstall < $answers 2>&1" | Out-String
           $code = $LASTEXITCODE
           Write-Host $out
           if ($code -ne 0) { throw "uninstall exit code $code" }

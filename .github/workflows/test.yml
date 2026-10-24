@@ -24,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - if: runner.os != 'Windows'
+        env:   # macOS 的 /bin/sh 在 UTF-8 下会把紧跟变量的全角字符读进变量名，用 macOS 终端的默认环境测试
+          LC_ALL: ${{ runner.os == 'macOS' && 'en_US.UTF-8' || '' }}
         run: |
           git archive --prefix=token-stats-test/ -o "$RUNNER_TEMP/src.tar.gz" HEAD
           TOKEN_STATS_ARCHIVE="$RUNNER_TEMP/src.tar.gz" sh install.sh

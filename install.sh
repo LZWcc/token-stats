@@ -83,7 +83,7 @@ LAUNCHER
     ver=$("$py" -c 'import sys; sys.path.insert(0, sys.argv[1]); import token_stats; print(token_stats.__version__)' "$app")
     say "已安装 token-stats $ver"
     say "  程序：$app"
-    say "  启动脚本：$bin/token-stats（Python：$py）"
+    say "  启动脚本：$bin/token-stats（Python：${py}）"
 
     case ":$PATH:" in
         *":$bin:"*) ;;
@@ -94,7 +94,7 @@ LAUNCHER
                 *) rc='shell 的配置文件' ;;
             esac
             say ''
-            say "$bin 不在 PATH 中。把下面这一行加到 $rc，然后重新打开终端："
+            say "$bin 不在 PATH 中。把下面这一行加到 ${rc}，然后重新打开终端："
             say '  export PATH="$HOME/.local/bin:$PATH"'
             ;;
     esac

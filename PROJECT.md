@@ -96,7 +96,7 @@
   - Windows：任务计划程序（schtasks，不补跑）。
 - 不装定时任务时手动运行 `sync`。唯一的硬约束：每台机器至少每 30 天被 `sync` 一次，否则 Claude Code 日志会在入库前被 30 天保留期清理（超过 7 天未成功采集时 `sync` 和 `doctor` 会提醒）。要以后再装定时任务，重新运行 `init`，各项默认沿用原值。
 - macOS 上程序位于 `~/Documents` 等受隐私保护（TCC）的目录时，launchd 启动的后台进程可能无权读取，因此要装定时任务时程序应放在数据目录下的 `app/`（与安装脚本的位置一致）。
-- Windows 相关部分（本地运行、任务计划程序、作为 ssh 远端）**尚未在 Windows 上实测**。
+- Windows 相关部分（本地运行、任务计划程序、作为 ssh 远端）**尚未在 Windows 上实测**；自动化测试和安装脚本在 GitHub Actions 的 Windows 上运行（M5）。
 
 ### 包结构
 
@@ -138,7 +138,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/LZW
 - 升级：重新运行安装命令。只替换 `app/`，不动配置和 usage.db；定时任务指向的程序目录不变，不用重装。
 - 卸载：README 写明命令：先移除定时任务，再删除 `app/` 和启动脚本；配置和 usage.db 是否删除由用户决定。
 - 现有代码不依赖安装位置：定时任务按包所在目录设置 `PYTHONPATH`，远端扫描从包目录读取 `scan.py` 源码。
-- Windows 的安装脚本同样尚未在 Windows 上实测。
+- Windows 的安装脚本只在 GitHub Actions 的 Windows 上用本地源码包测试过，尚未在真实 Windows 上从 GitHub 安装。
 
 ### M3 同时修复与补充
 
@@ -186,7 +186,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/LZW
 | ✅ **M2 卡片** | 渲染改为 Python；热力图、模型占比环形图、模型排行柱状图、统计卡片，亮暗两色；预览页 | 预览页四张卡片正确，数字与 usage.db 一致 |
 | ✅ **M3 命令行工具** | 第 2 节的全部命令、配置文件、数据目录、跨平台、定时任务；包结构改为 `token_stats/` | 用全新的临时家目录模拟首次安装，`init` 到出图全程跑通；在本机 `sync` 的结果与 M2 一致；`merge` 重复执行不重复计数；`rename` 后不重读文件 |
 | ✅ **M4 发布** | 可选发布（第 2 节“发布”）：`sync` 把日数据和卡片推送到用户仓库的 `token-stats/` 子目录；`init` 询问仓库，可用 gh 新建；README 片段；自动提交不计入贡献图 | 用本地裸仓库测试：首次推送、无变化不提交、推送失败后补推、多余文件被删除、子目录以外的文件不变、提交作者正确；真实仓库推送后卡片在 GitHub 上正常显示 |
-| **M5 开源打包** | LICENSE、自动化测试与 GitHub Actions、安装脚本（第 2 节“安装”）、中文 README、公开源码仓库并发布 Release（见下方“M5 计划”） | 他人照 README 用一条命令装好，直接运行 `token-stats`；三个平台的 CI 通过 |
+| ✅ **M5 开源打包** | LICENSE、自动化测试与 GitHub Actions、安装脚本（第 2 节“安装”）、中文 README、公开源码仓库并发布 Release（见下方“M5 计划”） | 他人照 README 用一条命令装好，直接运行 `token-stats`；三个平台的 CI 通过 |
 
 M1 实测结果（2026-10-23，主机 laptop + 两台服务器经 ssh）：
 - 代码（当时位于 `collector/`，M3 移入 `token_stats/`）：scan.py（扫描与解析，同一份源码既在主机本地调用，也经 ssh 发给远端 `python3 -I -B -` 执行）、中央 usage.db 与调度、CC Switch 导入。
@@ -220,6 +220,14 @@ M5 计划：
 5. README：先只写中文 `README.md`；英文版以后再补（`README.en.md`）。内容：是什么；卡片示例（引用作者的数据仓库）；安装、试用、`init`；多台机器（服务器需要免密 ssh、Python ≥ 3.9）；发布与 README 片段；合并其他机器、导入 CC Switch；配置说明；公开哪些内容；Claude Code 30 天日志保留期与“至少每 30 天 `sync` 一次”；可选的定时任务；升级与卸载；升级 Python 后重新运行安装命令，装了定时任务的再运行一次 `init`（启动脚本和定时任务记录的都是 Python 的绝对路径，Homebrew 和 Windows 上 python.org 版本的路径带版本号）。
 6. 公开发布（每一步先征得作者同意）：创建公开仓库 `LZWcc/token-stats`，只推送 `main`，不推送旧架构的 `dev` 分支；打 tag `v0.1.0`，用 `gh release create` 发布 Release。`PROJECT.md`、`CLAUDE.md`、`AGENTS.md` 随仓库公开；提交作者为作者本人的 GitHub 身份。
 7. 实测：在临时家目录中用 `curl … | sh` 从 GitHub 安装并跑通；再用安装脚本替换作者手动复制的 `app/`，配置和 usage.db 不动。
+
+M5 实测结果（2026-10-24）：
+- 测试：43 个 unittest（合成日志），macOS、Linux、Windows × Python 3.9 / 最新版全部通过；Windows 上跳过 launchd 和时区两项（没有时区数据）。CI 暴露并修复：测试中的裸仓库默认分支依赖本机 git（Xcode 自带的 git 配置为 main，CI 中为 master；克隆空仓库时本地分支跟随远端 HEAD）；Windows 上子进程文本默认按本地代码页编解码（测试与 `publish.py`、`schedule.py` 改为显式指定编码）。
+- 测试中发现并修复的产品问题：加锁失败时未关闭锁文件；Windows 上输出重定向（如定时任务写 run.log）时打印中文报错（`main()` 中把标准输出和标准错误改为 UTF-8，CI 中确认）；Windows 的 `sync.cmd` 换行变成 `\r\r\n`、未按 OEM 代码页写入。
+- 安装脚本：Mac 临时家目录中用 `/bin/sh` 与 dash、C / en_US.UTF-8 / zh_CN.UTF-8 测试首次安装、升级（只替换 `app/`，配置和 usage.db 不变）、源码包地址错误时旧 `app/` 不变、路径含空格和单引号、`XDG_DATA_HOME`、尚未发布时的报错。发现并修复：HTTP/2 下对 GitHub 发 HEAD 请求会出错或卡住，改用 GET；macOS 的 `/bin/sh`（bash 3.2）在 UTF-8 语言环境下把紧跟变量的全角标点读进变量名，`set -u` 下脚本中止、退出码却为 0，提示被截断（变量加花括号；CI 的 macOS 安装测试改用 UTF-8 语言环境）。`install.ps1` 只在 CI 的 Windows 上测试。
+- 发布：公开源码仓库 `LZWcc/token-stats`（只推送 main），tag `v0.1.0`，用 `gh release create` 发布 Release；`releases/latest` 的重定向和 API 的 `tag_name` 都是 v0.1.0。
+- 实测安装：临时家目录中用 `curl … | sh` 从 GitHub 安装 v0.1.0，`app/` 与 tag 中的源码一致，启动脚本运行试用正常；主机上用安装脚本替换手动复制的 `app/`，前后配置和 usage.db 的校验和不变，`doctor` 正常，`sync` 采集、导出并推送到数据仓库成功。
+- 未实测：真实 Windows 上的全部功能（包括从 GitHub 安装）、systemd / crontab 定时任务的实际安装、没有 gh 时的发布流程、推到已有内容的仓库。
 
 代码位于 `token_stats/`（第 2 节）。开发期本地 `archive/`（阶段一的日志副本）已于 2026-10-23 删除。
 

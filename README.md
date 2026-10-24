@@ -163,6 +163,7 @@ Claude Code 默认清理 30 天前的会话日志。每台机器至少每 30 天
 | `token-stats merge <usage.db> --as <名字>` | 合并另一台机器自己的 usage.db，可重复执行 |
 | `token-stats import-cc-switch` | 导入 CC Switch 中 Claude Code 的历史（只能一次） |
 | `token-stats rename <旧名> <新名>` | 修改机器名（不要直接改配置文件里的名字，否则会把日志重读一遍） |
+| `token-stats uninstall` | 卸载（见下方“升级与卸载”） |
 
 ## 配置
 
@@ -202,6 +203,15 @@ Claude Code 默认清理 30 天前的会话日志。每台机器至少每 30 天
 
 **卸载**：
 
+```bash
+token-stats uninstall
+```
+
+确认后移除定时任务，删除程序（`app/`）和启动脚本；再单独询问是否同时删除配置和数据，默认保留。**usage.db 中保存着全部历史，其中超过 30 天的 Claude Code 记录在日志中已经不存在，删除后无法恢复。** 发布仓库在 GitHub 上，需要自己删除。`uninstall` 从 v0.1.1 起提供，更早的版本先重新运行安装命令升级。
+
+<details>
+<summary>手动卸载（例如程序已经删除、只剩定时任务）</summary>
+
 1. 移除定时任务（没装可以跳过）：
 
    ```bash
@@ -234,6 +244,8 @@ Claude Code 默认清理 30 天前的会话日志。每台机器至少每 30 天
    ```
 
 3. 配置和数据是否删除由你决定。**usage.db 中保存着全部历史，其中超过 30 天的 Claude Code 记录在日志中已经不存在，删除后无法恢复。** 要彻底删除：macOS / Linux 删除 `~/.config/token-stats` 和 `~/.local/share/token-stats`；Windows 删除 `%APPDATA%\token-stats` 和 `%LOCALAPPDATA%\token-stats`。发布仓库在 GitHub 上，需要自己删除。
+
+</details>
 
 ## 平台支持
 

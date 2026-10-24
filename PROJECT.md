@@ -26,6 +26,7 @@
 | `token-stats merge <usage.db> --as <名字>` | 把另一台机器（如连不上的 Windows）自己的 usage.db 合并进来，机器名改为指定名字；只合并请求，不合并对方的读取进度；可重复执行，靠主键去重 |
 | `token-stats import-cc-switch` | 导入 CC Switch 历史（init 中也会询问），规则见第 8 节 |
 | `token-stats rename <旧名> <新名>` | 改机器名：同时更新 requests / files / machines 三张表，否则改名后读取进度对不上、会把所有文件重读一遍 |
+| `token-stats uninstall` | 卸载（v0.1.1 起），见下方“安装”中的“卸载” |
 
 ### 配置文件
 
@@ -136,7 +137,8 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/LZW
   4. 启动脚本所在目录不在 PATH 中时，只打印需要添加的那一行，不修改 `~/.zshrc`、`~/.bashrc` 或系统 PATH 等用户配置。
   5. 打印安装的版本。
 - 升级：重新运行安装命令。只替换 `app/`，不动配置和 usage.db；定时任务指向的程序目录不变，不用重装。
-- 卸载：README 写明命令：先移除定时任务，再删除 `app/` 和启动脚本；配置和 usage.db 是否删除由用户决定。
+- 卸载：`token-stats uninstall`（v0.1.1 起）。确认后移除定时任务（`schedule.uninstall()`，与安装对称，没装时什么也不做）；程序位于数据目录的 `app/`（安装脚本装的）时删除 `app/` 和启动脚本，从源码目录等其他位置运行时不删程序文件；另行询问是否同时删除配置和数据目录，默认保留（usage.db 删除后无法恢复）；移除定时任务失败时什么都不删；不碰 GitHub 上的发布仓库。README 另附手动卸载命令。
+- Windows 的启动脚本把运行 Python 和 `exit /b` 写在同一行：cmd 执行完一行才回文件读下一行，同一行已整体解析，`uninstall` 删除正在运行的启动脚本后不会报“找不到批处理文件”；`exit /b` 不带参数时保留 Python 的退出码。两点都由 CI 的 Windows 安装测试验证。
 - 现有代码不依赖安装位置：定时任务按包所在目录设置 `PYTHONPATH`，远端扫描从包目录读取 `scan.py` 源码。
 - Windows 的安装脚本只在 GitHub Actions 的 Windows 上用本地源码包测试过，尚未在真实 Windows 上从 GitHub 安装。
 
@@ -228,6 +230,8 @@ M5 实测结果（2026-10-24）：
 - 发布：公开源码仓库 `LZWcc/token-stats`（只推送 main），tag `v0.1.0`，用 `gh release create` 发布 Release；`releases/latest` 的重定向和 API 的 `tag_name` 都是 v0.1.0。
 - 实测安装：临时家目录中用 `curl … | sh` 从 GitHub 安装 v0.1.0，`app/` 与 tag 中的源码一致，启动脚本运行试用正常；主机上用安装脚本替换手动复制的 `app/`，前后配置和 usage.db 的校验和不变，`doctor` 正常，`sync` 采集、导出并推送到数据仓库成功。
 - 未实测：真实 Windows 上的全部功能（包括从 GitHub 安装）、systemd / crontab 定时任务的实际安装、没有 gh 时的发布流程、推到已有内容的仓库。
+
+M5 之后的补充：v0.1.1 新增 `token-stats uninstall`（第 2 节“安装”中的“卸载”）。
 
 代码位于 `token_stats/`（第 2 节）。开发期本地 `archive/`（阶段一的日志副本）已于 2026-10-23 删除。
 

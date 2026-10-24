@@ -56,6 +56,18 @@ class CliTest(TempDirTest):
         self.assertEqual(rc, 0, out)
         self.assertIn('请求 2', out)
 
+    def test_redirected_output_is_utf8(self):
+        # 输出重定向到文件时（如定时任务写 run.log）Python 用本地编码，Windows 上常为 cp1252，不能因中文崩溃
+        env = {k: v for k, v in self.env.items() if k not in ('PYTHONIOENCODING', 'PYTHONUTF8')}
+        out = self.path('out.txt')
+        with open(out, 'wb') as f:
+            r = subprocess.run([sys.executable, '-B', '-m', 'token_stats', '--no-open'], stdin=subprocess.DEVNULL,
+                               cwd=self.cwd, env=env, stdout=f, stderr=subprocess.STDOUT)
+        with open(out, 'rb') as f:
+            data = f.read()
+        self.assertEqual(r.returncode, 0, data)
+        self.assertIn('还没有任何用量数据'.encode('utf-8'), data)
+
     def test_init_sync_doctor_merge_rename(self):
         self.add_log(2)
         # 本机名 box；没有 ssh 主机；其余直接回车：不合并、系统时区、口径 all、不发布、不装定时任务

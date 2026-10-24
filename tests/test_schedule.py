@@ -28,19 +28,22 @@ class CommandTest(unittest.TestCase):
 
 
 class InstallTest(TempDirTest):
-    def install(self, kind):
+    def install(self, kind, fn=None, crontab=None):
+        """用假的系统命令运行 fn（默认 schedule.install）；crontab 为 crontab -l 的输出，None 表示没有 crontab。"""
         calls = []
 
         def fake_run(cmd, **kw):
             calls.append((cmd, kw.get('input')))
-            return subprocess.CompletedProcess(cmd, 1 if cmd == ['crontab', '-l'] else 0, '', '')
+            if cmd == ['crontab', '-l']:
+                return subprocess.CompletedProcess(cmd, 1 if crontab is None else 0, crontab or '', '')
+            return subprocess.CompletedProcess(cmd, 0, '', '')
 
         with mock.patch.object(schedule, 'kind', lambda: kind), mock.patch.object(schedule, '_run', fake_run), \
                 mock.patch.object(schedule, '_plist', lambda: self.path('agents', 'x.plist')), \
                 mock.patch.object(schedule, '_systemd_dir', lambda: self.path('systemd')), \
                 mock.patch.object(schedule, 'DATA_DIR', self.tmp), \
                 mock.patch.dict(schedule.PATHS, {'log': self.path('run.log')}):
-            schedule.install()
+            (fn or schedule.install)()
         return calls
 
     def test_launchd(self):
@@ -74,6 +77,34 @@ class InstallTest(TempDirTest):
             data = f.read()
         self.assertTrue(data.startswith(b'@echo off\r\n'))
         self.assertNotIn(b'\r\r\n', data)
+
+    def test_uninstall_launchd(self):
+        if not hasattr(os, 'getuid'):
+            self.skipTest('launchd 只在 Unix 上')
+        self.install('launchd')
+        calls = self.install('launchd', schedule.uninstall)
+        self.assertEqual(calls[0][0][:2], ['launchctl', 'bootout'])
+        self.assertFalse(os.path.exists(self.path('agents', 'x.plist')))
+        self.assertEqual(self.install('launchd', schedule.uninstall), [])   # 没装时什么也不做
+
+    def test_uninstall_systemd(self):
+        self.install('systemd')
+        calls = [c for c, _ in self.install('systemd', schedule.uninstall)]
+        self.assertIn(['systemctl', '--user', 'disable', '--now', 'token-stats.timer'], calls)
+        self.assertEqual(os.listdir(self.path('systemd')), [])
+        self.assertEqual(self.install('systemd', schedule.uninstall), [])
+
+    def test_uninstall_cron(self):
+        calls = self.install('cron', schedule.uninstall, crontab='0 1 * * * other\n0 12 * * * x %s\n' % schedule.CRON_MARK)
+        self.assertEqual([inp for c, inp in calls if c == ['crontab', '-']], ['0 1 * * * other\n'])   # 其他行保留
+        calls = self.install('cron', schedule.uninstall, crontab='0 1 * * * other\n')
+        self.assertEqual(calls, [(['crontab', '-l'], None)])
+
+    def test_uninstall_schtasks(self):
+        self.install('schtasks')
+        calls = [c for c, _ in self.install('schtasks', schedule.uninstall)]
+        self.assertIn(['schtasks', '/Delete', '/F', '/TN', 'token-stats'], calls)
+        self.assertFalse(os.path.exists(self.path('sync.cmd')))
 
 
 if __name__ == '__main__':

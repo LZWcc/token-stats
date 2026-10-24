@@ -62,9 +62,11 @@ function Install-TokenStats {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    # cmd 按 OEM 代码页读取批处理文件；setlocal 使 PYTHONPATH 不留在调用者的 cmd 窗口中
+    # cmd 按 OEM 代码页读取批处理文件；setlocal 使 PYTHONPATH 不留在调用者的 cmd 窗口中。
+    # 运行 Python 与 exit /b 写在同一行：cmd 执行完一行才回文件读下一行，同一行已整体解析，
+    # token-stats uninstall 删除正在运行的本文件后不会报“找不到批处理文件”；exit /b 不带参数时保留 Python 的退出码
     $cmd = Join-Path $bin 'token-stats.cmd'
-    $text = "@echo off`r`nsetlocal`r`nset `"PYTHONPATH=$app`"`r`n`"$py`" -m token_stats %*`r`n"
+    $text = "@echo off`r`nsetlocal`r`nset `"PYTHONPATH=$app`"`r`n`"$py`" -m token_stats %* & exit /b`r`n"
     Set-Content -LiteralPath $cmd -Value $text -Encoding Oem -NoNewline
 
     $ver = & $py -c "import sys; sys.path.insert(0, sys.argv[1]); import token_stats; print(token_stats.__version__)" $app

@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -B -m unittest -v
-  # 用当前提交打出的源码包测试安装脚本（TOKEN_STATS_ARCHIVE），再用启动脚本运行一次试用
+  # 用当前提交打出的源码包测试安装脚本（TOKEN_STATS_ARCHIVE），再用启动脚本运行一次试用、检查退出码的传递、卸载
   install:
     strategy:
       fail-fast: false
@@ -30,6 +30,9 @@ jobs:
           git archive --prefix=token-stats-test/ -o "$RUNNER_TEMP/src.tar.gz" HEAD
           TOKEN_STATS_ARCHIVE="$RUNNER_TEMP/src.tar.gz" sh install.sh
           cd "$RUNNER_TEMP" && "$HOME/.local/bin/token-stats" --no-open
+          rc=0; "$HOME/.local/bin/token-stats" no-such-command || rc=$?; test "$rc" -eq 2   # argparse 报错的退出码
+          printf 'y\n\n' | "$HOME/.local/bin/token-stats" uninstall
+          test ! -e "$HOME/.local/bin/token-stats" && test ! -e "$HOME/.local/share/token-stats/app"
       - if: runner.os == 'Windows'
         shell: powershell
         run: |
@@ -39,3 +42,15 @@ jobs:
           cd $env:RUNNER_TEMP
           & "$env:LOCALAPPDATA\token-stats\bin\token-stats.cmd" --no-open
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # 启动脚本把运行 Python 与 exit /b 写在同一行：退出码要传回来；uninstall 删除正在运行的 .cmd 后不能报找不到批处理文件
+          $ErrorActionPreference = 'Continue'
+          $cmd = "$env:LOCALAPPDATA\token-stats\bin\token-stats.cmd"
+          & $cmd no-such-command
+          if ($LASTEXITCODE -ne 2) { throw "launcher exit code: expected 2, got $LASTEXITCODE" }
+          $out = "y`n`n" | & $cmd uninstall 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Host $out
+          if ($code -ne 0) { throw "uninstall exit code $code" }
+          if ($out -match 'batch file') { throw 'cmd could not find the deleted batch file' }
+          if (Test-Path "$env:LOCALAPPDATA\token-stats\bin") { throw 'bin not removed' }
+          if (Test-Path "$env:LOCALAPPDATA\token-stats\app") { throw 'app not removed' }

@@ -1,6 +1,7 @@
-"""命令行入口：token-stats [init | sync | doctor | merge | import-cc-switch | rename]。见 PROJECT.md 第 2 节。"""
+"""命令行入口：token-stats [init | sync | doctor | merge | import-cc-switch | rename | uninstall]。见 PROJECT.md 第 2 节。"""
 import argparse
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -373,6 +374,55 @@ def cmd_init(args):
     return rc
 
 
+def launcher():
+    """安装脚本（install.sh / install.ps1）生成的启动脚本。"""
+    if os.name == 'nt':
+        return os.path.join(config.DATA_DIR, 'bin', 'token-stats.cmd')
+    return os.path.join(os.path.expanduser('~'), '.local', 'bin', 'token-stats')
+
+
+def cmd_uninstall(args):
+    app = os.path.join(config.DATA_DIR, 'app')
+    # 只删除安装脚本装在数据目录 app/ 中的程序；从源码目录等其他位置运行时不删程序文件
+    installed = os.path.normcase(os.path.abspath(schedule.PKG_PARENT)) == os.path.normcase(os.path.abspath(app))
+    cfg = config.load()
+    print('将移除：定时任务（如已安装）')
+    if installed:
+        print('  程序：%s' % app)
+        print('  启动脚本：%s' % launcher())
+    else:
+        print('  当前从 %s 运行，不是安装脚本安装的，不删除程序文件' % schedule.PKG_PARENT)
+    if not ask_yes('确认卸载？', False):
+        print('已取消')
+        return 0
+    purge = ask_yes('同时删除配置（%s）和数据目录（%s）？其中的 usage.db 保存着全部历史，超过 30 天的 Claude Code 记录'
+                    '在日志中已经不存在，删除后无法恢复' % (config.CONFIG_DIR, config.DATA_DIR), False)
+    try:
+        print(schedule.uninstall())
+    except (RuntimeError, OSError) as e:
+        print('移除定时任务失败：%s。程序和数据都未删除' % e)
+        return 1
+    if installed:
+        shutil.rmtree(app)
+        if os.name == 'nt':
+            # 正在运行的 token-stats.cmd 也可以删：启动脚本把运行 Python 和 exit /b 写在同一行，cmd 不会再回文件读下一行
+            shutil.rmtree(os.path.dirname(launcher()))
+        elif os.path.exists(launcher()):
+            os.remove(launcher())
+        print('已删除程序和启动脚本')
+    if purge:
+        for d in (config.CONFIG_DIR, config.DATA_DIR):
+            if os.path.exists(d):
+                shutil.rmtree(d)
+        print('已删除配置和数据目录')
+    else:
+        print('保留配置 %s 和数据目录 %s' % (config.CONFIG_DIR, config.DATA_DIR))
+    if cfg and cfg['publish']:
+        print('发布仓库 %s 在 GitHub 上，不再需要时自己删除' % cfg['publish'])
+    print('卸载完成')
+    return 0
+
+
 def main(argv=None):
     for s in (sys.stdout, sys.stderr):   # 输出重定向时默认用本地编码（Windows 上常为 cp1252），中文会报错
         s.reconfigure(encoding='utf-8')
@@ -391,6 +441,7 @@ def main(argv=None):
     p = sub.add_parser('rename', help='改机器名（三张表与配置一起改）')
     p.add_argument('old')
     p.add_argument('new')
+    sub.add_parser('uninstall', help='卸载：移除定时任务，删除程序和启动脚本；配置和数据单独询问，默认保留')
     args = ap.parse_args(argv)
     return {None: cmd_try, 'init': cmd_init, 'sync': cmd_sync, 'doctor': cmd_doctor, 'merge': cmd_merge,
-            'import-cc-switch': cmd_import_cc_switch, 'rename': cmd_rename}[args.cmd](args)
+            'import-cc-switch': cmd_import_cc_switch, 'rename': cmd_rename, 'uninstall': cmd_uninstall}[args.cmd](args)

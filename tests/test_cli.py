@@ -1,11 +1,14 @@
 """命令行端到端：子进程运行 python -m token_stats，家目录相关的环境变量全部指向临时目录。"""
+import contextlib
+import io
 import json
 import os
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
-from token_stats import store
+from token_stats import cli, config, schedule, store
 from tests.helpers import TempDirTest, claude_line, write_lines
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -105,6 +108,72 @@ class CliTest(TempDirTest):
         rc, out = self.ts('rename', 'box2', 'win')                # 新名字已被使用
         self.assertNotEqual(rc, 0)
         self.assertIn('已在使用', out)
+
+
+class UninstallTest(TempDirTest):
+    """uninstall：在本进程中运行，数据目录、配置目录、启动脚本都指向临时目录，定时任务用假的。"""
+    def setUp(self):
+        super().setUp()
+        self.data, self.conf = self.path('data'), self.path('conf')
+        self.app, self.bin = os.path.join(self.data, 'app'), self.path('bin')
+        self.launcher = os.path.join(self.bin, 'token-stats')
+        for p in (os.path.join(self.app, 'token_stats', '__init__.py'), self.launcher,
+                  os.path.join(self.data, 'usage.db'), os.path.join(self.conf, 'config.json')):
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            open(p, 'w').close()
+        self.removed = []
+
+    def run_uninstall(self, answers, pkg_parent=None, fail=False):
+        def fake_uninstall():
+            if fail:
+                raise RuntimeError('schtasks 失败')
+            self.removed.append('schedule')
+            return '定时任务：未安装'
+        out = io.StringIO()
+        with mock.patch.object(config, 'DATA_DIR', self.data), mock.patch.object(config, 'CONFIG_DIR', self.conf), \
+                mock.patch.object(config, 'load', lambda: {'publish': 'alice/data'}), \
+                mock.patch.object(schedule, 'uninstall', fake_uninstall), \
+                mock.patch.object(schedule, 'PKG_PARENT', pkg_parent or self.app), \
+                mock.patch.object(cli, 'launcher', lambda: self.launcher), \
+                mock.patch('builtins.input', side_effect=answers), contextlib.redirect_stdout(out):
+            rc = cli.cmd_uninstall(None)   # 不经过 main()：它会重设标准输出的编码，StringIO 不支持
+        return rc, out.getvalue()
+
+    def test_removes_program_keeps_data(self):
+        rc, out = self.run_uninstall(['y', ''])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.removed, ['schedule'])
+        self.assertFalse(os.path.exists(self.app))
+        self.assertFalse(os.path.exists(self.launcher))
+        self.assertTrue(os.path.exists(os.path.join(self.data, 'usage.db')))
+        self.assertTrue(os.path.exists(os.path.join(self.conf, 'config.json')))
+        self.assertIn('alice/data', out)                          # 提醒自己删除发布仓库
+
+    def test_purge(self):
+        rc, out = self.run_uninstall(['y', 'y'])
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(os.path.exists(self.data))
+        self.assertFalse(os.path.exists(self.conf))
+
+    def test_running_from_source_keeps_program(self):
+        rc, out = self.run_uninstall(['y', ''], pkg_parent=self.path('src'))
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(os.path.exists(self.app))
+        self.assertTrue(os.path.exists(self.launcher))
+        self.assertIn('不删除程序文件', out)
+
+    def test_cancel(self):
+        rc, out = self.run_uninstall([''])
+        self.assertEqual((rc, self.removed), (0, []))
+        self.assertTrue(os.path.exists(self.app))
+        self.assertIn('已取消', out)
+
+    def test_schedule_failure_deletes_nothing(self):
+        rc, out = self.run_uninstall(['y', 'y'], fail=True)
+        self.assertEqual(rc, 1)
+        self.assertTrue(os.path.exists(self.app))
+        self.assertTrue(os.path.exists(os.path.join(self.data, 'usage.db')))
+        self.assertIn('schtasks 失败', out)
 
 
 if __name__ == '__main__':

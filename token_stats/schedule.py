@@ -96,6 +96,40 @@ def install():
     return '任务计划程序：%s，每天 %02d:%02d 运行（尚未在 Windows 上实测）' % (NAME, HOUR, MINUTE)
 
 
+def uninstall():
+    """移除定时任务（install 的逆操作），返回说明。没装时什么也不做。"""
+    k = kind()
+    if k == 'launchd':
+        p = _plist()
+        if not os.path.exists(p):
+            return '定时任务：未安装'
+        _run(['launchctl', 'bootout', 'gui/%d' % os.getuid(), p])   # 没加载时报错可忽略
+        os.remove(p)
+        return '已移除定时任务：%s' % p
+    if k == 'systemd':
+        units = [os.path.join(_systemd_dir(), NAME + ext) for ext in ('.service', '.timer')]
+        if not any(os.path.exists(u) for u in units):
+            return '定时任务：未安装'
+        _run(['systemctl', '--user', 'disable', '--now', NAME + '.timer'])   # 没启用时报错可忽略
+        for u in units:
+            if os.path.exists(u):
+                os.remove(u)
+        _check(_run(['systemctl', '--user', 'daemon-reload']), 'systemctl daemon-reload')
+        return '已移除定时任务：systemd 用户定时器 %s.timer' % NAME
+    if k == 'cron':
+        cur = _run(['crontab', '-l'])
+        if cur.returncode != 0 or CRON_MARK not in cur.stdout:
+            return '定时任务：未安装'
+        lines = [x for x in cur.stdout.splitlines() if not x.endswith(CRON_MARK)]
+        _check(_run(['crontab', '-'], input=''.join(x + '\n' for x in lines)), 'crontab')
+        return '已移除定时任务：crontab 中带 %s 标记的一行' % CRON_MARK
+    r = _run(['schtasks', '/Delete', '/F', '/TN', NAME])
+    wrapper = os.path.join(DATA_DIR, 'sync.cmd')
+    if os.path.exists(wrapper):
+        os.remove(wrapper)
+    return '已移除定时任务：任务计划程序 %s' % NAME if r.returncode == 0 else '定时任务：未安装'
+
+
 def status():
     """返回 (是否已安装, 说明)。"""
     k = kind()

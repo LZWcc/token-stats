@@ -88,7 +88,8 @@ def install():
         _check(_run(['crontab', '-'], input='\n'.join(lines + [line]) + '\n'), 'crontab')
         return 'crontab：每天 %02d:%02d 运行，输出写入 %s' % (HOUR, MINUTE, PATHS['log'])
     wrapper = os.path.join(DATA_DIR, 'sync.cmd')
-    with open(wrapper, 'w') as f:
+    # cmd 按 OEM 代码页读批处理文件（'oem' 编码只在 Windows 上有）；换行已写成 \r\n，newline='' 避免文本模式再转成 \r\r\n
+    with open(wrapper, 'w', encoding='oem' if os.name == 'nt' else None, newline='') as f:
         f.write('@echo off\r\nset "PYTHONPATH=%s"\r\n"%s" -m token_stats sync >> "%s" 2>&1\r\n' % (PKG_PARENT, sys.executable, PATHS['log']))
     _check(_run(['schtasks', '/Create', '/F', '/SC', 'DAILY', '/ST', '%02d:%02d' % (HOUR, MINUTE), '/TN', NAME, '/TR', '"%s"' % wrapper]), 'schtasks')
     return '任务计划程序：%s，每天 %02d:%02d 运行（尚未在 Windows 上实测）' % (NAME, HOUR, MINUTE)

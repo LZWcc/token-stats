@@ -70,6 +70,10 @@ class InstallTest(TempDirTest):
         calls = self.install('schtasks')
         cmd = [c for c, _ in calls if c[0] == 'schtasks'][0]
         self.assertEqual(cmd[cmd.index('/SC') + 1:cmd.index('/SC') + 4], ['DAILY', '/ST', '12:00'])
+        with open(self.path('sync.cmd'), 'rb') as f:
+            data = f.read()
+        self.assertTrue(data.startswith(b'@echo off\r\n'))
+        self.assertNotIn(b'\r\r\n', data)
 
 
 if __name__ == '__main__':

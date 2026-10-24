@@ -71,6 +71,12 @@ class CliTest(TempDirTest):
         self.assertEqual(r.returncode, 0, data)
         self.assertIn('还没有任何用量数据'.encode('utf-8'), data)
 
+    def test_rename_without_config(self):
+        rc, out = self.ts('rename', 'a', 'b')
+        self.assertEqual(rc, 1, out)
+        self.assertIn('还没有配置', out)
+        self.assertFalse(os.path.exists(self.data_dir()))         # 不新建空的 usage.db
+
     def test_init_sync_doctor_merge_rename(self):
         self.add_log(2)
         # 本机名 box；没有 ssh 主机；其余直接回车：不合并、系统时区、口径 all、不发布、不装定时任务

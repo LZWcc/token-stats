@@ -216,21 +216,20 @@ def cmd_merge(args):
 
 
 def cmd_rename(args):
+    cfg = require_config()   # 没有配置时报错退出，不新建空的 usage.db
     held = store.lock(config.PATHS['db'])  # 保持锁文件句柄直到进程退出
     try:
         counts = store.rename(store.connect(config.PATHS['db']), args.old, args.new)
     except ValueError as e:
         raise SystemExit(str(e))
-    cfg = config.load()
-    if cfg:
-        if cfg['machine'] == args.old:
-            cfg['machine'] = args.new
-        for item in cfg['remotes'] + cfg['merge']:
-            if item['name'] == args.old:
-                item['name'] = args.new
-        config.save(cfg)
-    print('已改名 %s → %s：请求 %d 行 · 读取进度 %d 个文件 · 状态 %d 条%s' % (
-        args.old, args.new, counts['requests'], counts['files'], counts['machines'], '；配置已同步' if cfg else ''))
+    if cfg['machine'] == args.old:
+        cfg['machine'] = args.new
+    for item in cfg['remotes'] + cfg['merge']:
+        if item['name'] == args.old:
+            item['name'] = args.new
+    config.save(cfg)
+    print('已改名 %s → %s：请求 %d 行 · 读取进度 %d 个文件 · 状态 %d 条；配置已同步' % (
+        args.old, args.new, counts['requests'], counts['files'], counts['machines']))
     return 0
 
 

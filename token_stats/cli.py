@@ -405,7 +405,7 @@ def cmd_uninstall(args):
     if installed:
         shutil.rmtree(app)
         if os.name == 'nt':
-            # 正在运行的 token-stats.cmd 也可以删：启动脚本把运行 Python 和 exit /b 写在同一行，cmd 不会再回文件读下一行
+            # 正在运行的 token-stats.cmd 也可以删：启动脚本把运行 Python 和 call exit /b 写在同一行，cmd 不会再回文件读下一行
             shutil.rmtree(os.path.dirname(launcher()))
         elif os.path.exists(launcher()):
             os.remove(launcher())

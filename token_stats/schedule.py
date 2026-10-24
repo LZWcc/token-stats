@@ -28,7 +28,8 @@ def command():
 
 
 def _run(cmd, **kw):
-    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, **kw)
+    # schtasks 等按 OEM 代码页输出，与本地代码页不一定相同；解码不了的字符替换掉，不因此崩溃
+    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, errors='replace', **kw)
 
 
 def _check(r, what):

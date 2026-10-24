@@ -8,7 +8,7 @@ from .config import PATHS
 SUBDIR = 'token-stats'
 CARDS = (('heatmap', 'Token 用量'), ('stats', 'Token 统计'), ('models-donut', '模型占比'), ('models-bar', '模型排行'))
 # 自动提交的作者不关联任何 GitHub 账号，不计入用户的贡献图；用 -c 传入，不改用户的 git 配置。
-# 关闭签名：用户全局开启 commit.gpgsign 时，会用他的密钥给这个作者签名。克隆空仓库时分支名用 main（与 GitHub 默认一致）
+# 关闭签名：用户全局开启 commit.gpgsign 时，会用他的密钥给这个作者签名。克隆空仓库时本地分支跟随远端 HEAD（GitHub 上即仓库的默认分支），init.defaultBranch 只在远端不告知 HEAD 时起作用
 GIT_OPTS = ['-c', 'user.name=token-stats', '-c', 'user.email=token-stats@localhost', '-c', 'commit.gpgsign=false',
             '-c', 'init.defaultBranch=main']
 ENV = dict(os.environ, GIT_TERMINAL_PROMPT='0')  # 认证失败时直接报错，不卡在等待输入
@@ -27,8 +27,9 @@ def error_line(r):
 
 
 def run(cwd, *args, check=True):
+    # git、gh 的输出是 UTF-8；不指定时 Windows 上按本地代码页解码，遇到中文等字符会抛出 UnicodeDecodeError
     r = subprocess.run(['git'] + GIT_OPTS + list(args), cwd=cwd, env=ENV,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, encoding='utf-8', errors='replace')
     if check and r.returncode != 0:
         raise RuntimeError('git %s 失败：%s' % (args[0], error_line(r)))
     return r
@@ -96,7 +97,8 @@ def snippet(repo, b):
 
 def create(repo):
     """用 gh 新建公开仓库，克隆后提交并推送 README 作为第一个提交（只在新建时生成一次）。"""
-    r = subprocess.run([GH, 'repo', 'create', repo, '--public'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    r = subprocess.run([GH, 'repo', 'create', repo, '--public'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+                       encoding='utf-8', errors='replace')
     if r.returncode != 0:
         raise RuntimeError('gh repo create 失败：%s' % (r.stderr or r.stdout).strip())
     d = clone(repo)

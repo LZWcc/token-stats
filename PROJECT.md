@@ -206,7 +206,7 @@ M3 实测结果（2026-10-23，Mac 上用临时家目录模拟首次安装，日
 - 未实测：定时任务的实际安装（会装进真实的 launchd，留到正式部署）、systemd / crontab 安装、Windows 上的全部功能。
 
 M4 实测结果（2026-10-24，主机 laptop）：
-- 本地裸仓库测试（`gh repo create` 替换为 `git init --bare`）：`init` 时仓库不存在 → 新建并推送 README → 首次 `sync` 推送卡片；推送 171 个日数据文件；再次运行无变化、不提交；删除日数据文件后远端同步删除；远端改动子目录以外的文件（README、新文件）被保留；远端不可用时只报错、不影响采集，`doctor` 显示连接失败，恢复后下次推送成功；远端改动子目录内的文件时被本地数据覆盖、不冲突；提交作者和提交者都是 `token-stats <token-stats@localhost>`；空仓库克隆后分支为 `main`；用户的 `~/.gitconfig` 不变。
+- 本地裸仓库测试（`gh repo create` 替换为 `git init --bare`）：`init` 时仓库不存在 → 新建并推送 README → 首次 `sync` 推送卡片；推送 171 个日数据文件；再次运行无变化、不提交；删除日数据文件后远端同步删除；远端改动子目录以外的文件（README、新文件）被保留；远端不可用时只报错、不影响采集，`doctor` 显示连接失败，恢复后下次推送成功；远端改动子目录内的文件时被本地数据覆盖、不冲突；提交作者和提交者都是 `token-stats <token-stats@localhost>`；空仓库克隆后分支为 `main`（克隆空仓库时本地分支跟随远端 HEAD，当时本机裸仓库的 HEAD 因 Xcode 自带的 git 配置为 main；CI 中默认是 master，测试改为显式 `--initial-branch=main` 模拟 GitHub）；用户的 `~/.gitconfig` 不变。
 - 最初推送前用 `git pull --rebase`：远端改动子目录内的文件时会冲突，之后每次发布都失败，因此改为 fetch 后重置到远端（第 2 节“发布”）。
 - 凭据：ssh 会话里钥匙串不可用（-25308），追加 gh 作为备用凭据助手后，经 ssh、精简 PATH 的推送演练（`push --dry-run`）成功。
 - 真实仓库：主机上用正式数据运行 `init`，用 gh 新建公开仓库并首次推送 README、8 张卡片、172 个日数据文件；默认分支 `main`；卡片的 raw 地址返回 `image/svg+xml`；推送内容中没有机器名、用户名和本地路径；`doctor` 正常。

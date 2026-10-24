@@ -138,7 +138,7 @@ class RemoteProgramTest(TempDirTest):
         write_lines(self.path('codex', 'r.jsonl'), [codex_context(TS, 'gpt'), codex_record(TS, 'x', codex_usage(3, 1, 0, 1))])
         roots = {'claude-code': [self.path('claude')], 'codex': [self.path('codex')]}
         r = subprocess.run([sys.executable, '-I', '-B', '-'], input=remote.remote_program(roots, {}),
-                           stdout=subprocess.PIPE, universal_newlines=True, check=True)
+                           stdout=subprocess.PIPE, universal_newlines=True, encoding='utf-8', check=True)
         remote_events = [json.loads(line) for line in r.stdout.splitlines()]
         self.assertEqual(remote_events, json.loads(json.dumps(list(scan.scan(roots, {})))))
 

@@ -32,8 +32,8 @@ class PublishTest(TempDirTest):
                 self.write(os.path.join(d, n), n)
         with open(os.path.join(self.cards, 'preview.html'), 'w') as f:   # 不推送
             f.write('preview')
-        # 假 gh：repo create 时建一个本地裸仓库
-        fake = lambda cmd, **kw: real_run(['git', 'init', '-q', '--bare', self.bare], **kw) if cmd[0] == 'fake-gh' else real_run(cmd, **kw)
+        # 假 gh：repo create 时建一个本地裸仓库，HEAD 指向 main，与 GitHub 新建的空仓库一致（克隆空仓库时本地分支跟随远端 HEAD）
+        fake = lambda cmd, **kw: real_run(['git', 'init', '-q', '--bare', '--initial-branch=main', self.bare], **kw) if cmd[0] == 'fake-gh' else real_run(cmd, **kw)
         with mock.patch.object(publish.subprocess, 'run', fake):
             publish.create(REPO)
 
@@ -43,7 +43,7 @@ class PublishTest(TempDirTest):
             f.write(text + '\n')
 
     def bare_git(self, *args):
-        return real_run(['git', '--git-dir', self.bare] + list(args), stdout=subprocess.PIPE, universal_newlines=True).stdout.strip()
+        return real_run(['git', '--git-dir', self.bare] + list(args), stdout=subprocess.PIPE, universal_newlines=True, encoding='utf-8').stdout.strip()
 
     def files(self):
         return sorted(self.bare_git('ls-tree', '-r', '--name-only', 'HEAD').splitlines())

@@ -14,3 +14,26 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -B -m unittest -v
+  # 用当前提交打出的源码包测试安装脚本（TOKEN_STATS_ARCHIVE），再用启动脚本运行一次试用
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - if: runner.os != 'Windows'
+        run: |
+          git archive --prefix=token-stats-test/ -o "$RUNNER_TEMP/src.tar.gz" HEAD
+          TOKEN_STATS_ARCHIVE="$RUNNER_TEMP/src.tar.gz" sh install.sh
+          cd "$RUNNER_TEMP" && "$HOME/.local/bin/token-stats" --no-open
+      - if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          git archive --prefix=token-stats-test/ -o "$env:RUNNER_TEMP\src.zip" HEAD
+          $env:TOKEN_STATS_ARCHIVE = "$env:RUNNER_TEMP\src.zip"
+          Get-Content -Raw -Encoding UTF8 install.ps1 | Invoke-Expression
+          cd $env:RUNNER_TEMP
+          & "$env:LOCALAPPDATA\token-stats\bin\token-stats.cmd" --no-open
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

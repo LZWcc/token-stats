@@ -138,7 +138,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/LZW
   5. 打印安装的版本。
 - 升级：重新运行安装命令。只替换 `app/`，不动配置和 usage.db；定时任务指向的程序目录不变，不用重装。
 - 卸载：`token-stats uninstall`（v0.1.1 起）。确认后移除定时任务（`schedule.uninstall()`，与安装对称，没装时什么也不做）；程序位于数据目录的 `app/`（安装脚本装的）时删除 `app/` 和启动脚本，从源码目录等其他位置运行时不删程序文件；另行询问是否同时删除配置和数据目录，默认保留（usage.db 删除后无法恢复）；移除定时任务失败时什么都不删；不碰 GitHub 上的发布仓库。README 另附手动卸载命令。
-- Windows 的启动脚本把运行 Python 和 `call exit /b %%errorlevel%%` 写在同一行：cmd 执行完一行才回文件读下一行，同一行已整体解析，`uninstall` 删除正在运行的启动脚本后不会报“找不到批处理文件”。`exit /b` 不带参数时退出码为 0（CI 实测，Python 的退出码丢失），所以用 `call` 在执行时再展开一次 `%errorlevel%`。两点都由 CI 的 Windows 安装测试验证。
+- Windows 上 `uninstall` 不能直接删除正在运行的启动脚本：cmd 执行完一行才回文件读下一行，Python 退出后文件已不在会报错。改为启动独立的 cmd 进程，约 2 秒后（启动脚本退出后）删除 `bin\`（删除数据时删除整个数据目录）；`app\` 立即删除（模块已读入内存）。CI 实测过的其他写法都不行：行尾加 `& exit /b` 时退出码变为 0；加 `& call exit /b %%errorlevel%%` 时退出码正确，但删除自身后 `call` 报 “The system cannot find the path specified.”、退出码变为 1。由 CI 的 Windows 安装测试验证：启动脚本传回退出码、卸载后不报错、`bin\` 和 `app\` 被删除。
 - 现有代码不依赖安装位置：定时任务按包所在目录设置 `PYTHONPATH`，远端扫描从包目录读取 `scan.py` 源码。
 - Windows 的安装脚本只在 GitHub Actions 的 Windows 上用本地源码包测试过，尚未在真实 Windows 上从 GitHub 安装。
 

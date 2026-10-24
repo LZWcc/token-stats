@@ -42,19 +42,19 @@ jobs:
           cd $env:RUNNER_TEMP
           & "$env:LOCALAPPDATA\token-stats\bin\token-stats.cmd" --no-open
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          # 启动脚本把运行 Python 与 exit /b 写在同一行：退出码要传回来；uninstall 删除正在运行的 .cmd 后不能报找不到批处理文件
+          # 启动脚本要传回 Python 的退出码；uninstall 稍后由独立进程删除正在运行的 .cmd，不能报找不到批处理文件
           $ErrorActionPreference = 'Continue'
           $cmd = "$env:LOCALAPPDATA\token-stats\bin\token-stats.cmd"
           & $cmd no-such-command
           if ($LASTEXITCODE -ne 2) { throw "launcher exit code: expected 2, got $LASTEXITCODE" }
-          # 回答写进不带 BOM 的文件再重定向：PowerShell 管道写给原生程序时可能带 BOM，Python 读到的第一行不是 y
-          Write-Host "OutputEncoding: $($OutputEncoding.WebName), BOM bytes: $($OutputEncoding.GetPreamble().Length)"
+          # 回答写进文件再重定向：用 PowerShell 管道传入时 Python 没有读到 y（原因未查明；OutputEncoding 为 us-ascii，不是 BOM）
           $answers = Join-Path $env:RUNNER_TEMP 'answers.txt'
           [IO.File]::WriteAllText($answers, "y`r`n`r`n")
           $out = cmd /c "$cmd uninstall < $answers 2>&1" | Out-String
           $code = $LASTEXITCODE
           Write-Host $out
           if ($code -ne 0) { throw "uninstall exit code $code" }
-          if ($out -match 'batch file') { throw 'cmd could not find the deleted batch file' }
+          if ($out -match 'batch file|cannot find the path') { throw 'cmd complained after the batch file was removed' }
+          Start-Sleep -Seconds 5
           if (Test-Path "$env:LOCALAPPDATA\token-stats\bin") { throw 'bin not removed' }
           if (Test-Path "$env:LOCALAPPDATA\token-stats\app") { throw 'app not removed' }

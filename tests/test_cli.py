@@ -121,7 +121,7 @@ class UninstallTest(TempDirTest):
                   os.path.join(self.data, 'usage.db'), os.path.join(self.conf, 'config.json')):
             os.makedirs(os.path.dirname(p), exist_ok=True)
             open(p, 'w').close()
-        self.removed = []
+        self.removed, self.later = [], []
 
     def run_uninstall(self, answers, pkg_parent=None, fail=False):
         def fake_uninstall():
@@ -135,6 +135,7 @@ class UninstallTest(TempDirTest):
                 mock.patch.object(schedule, 'uninstall', fake_uninstall), \
                 mock.patch.object(schedule, 'PKG_PARENT', pkg_parent or self.app), \
                 mock.patch.object(cli, 'launcher', lambda: self.launcher), \
+                mock.patch.object(cli, 'remove_later', self.later.extend), \
                 mock.patch('builtins.input', side_effect=answers), contextlib.redirect_stdout(out):
             rc = cli.cmd_uninstall(None)   # 不经过 main()：它会重设标准输出的编码，StringIO 不支持
         return rc, out.getvalue()
@@ -144,7 +145,10 @@ class UninstallTest(TempDirTest):
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.removed, ['schedule'])
         self.assertFalse(os.path.exists(self.app))
-        self.assertFalse(os.path.exists(self.launcher))
+        if os.name == 'nt':
+            self.assertEqual(self.later, [self.bin])               # 正在运行的启动脚本稍后由独立进程删除
+        else:
+            self.assertFalse(os.path.exists(self.launcher))
         self.assertTrue(os.path.exists(os.path.join(self.data, 'usage.db')))
         self.assertTrue(os.path.exists(os.path.join(self.conf, 'config.json')))
         self.assertIn('alice/data', out)                          # 提醒自己删除发布仓库
@@ -152,8 +156,11 @@ class UninstallTest(TempDirTest):
     def test_purge(self):
         rc, out = self.run_uninstall(['y', 'y'])
         self.assertEqual(rc, 0, out)
-        self.assertFalse(os.path.exists(self.data))
         self.assertFalse(os.path.exists(self.conf))
+        if os.name == 'nt':
+            self.assertEqual(self.later, [self.data])              # 数据目录稍后整个删除
+        else:
+            self.assertFalse(os.path.exists(self.data))
 
     def test_running_from_source_keeps_program(self):
         rc, out = self.run_uninstall(['y', ''], pkg_parent=self.path('src'))

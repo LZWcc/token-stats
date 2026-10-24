@@ -381,6 +381,14 @@ def launcher():
     return os.path.join(os.path.expanduser('~'), '.local', 'bin', 'token-stats')
 
 
+def remove_later(paths):
+    """Windows：正在运行的 token-stats.cmd 不能现在删，Python 退出后 cmd 还要回文件读下一行，文件不在就报错。
+    交给独立的 cmd 进程，约 2 秒后（启动脚本退出后）删除这些目录。"""
+    cmd = 'ping -n 3 127.0.0.1 >nul' + ''.join(' & rmdir /s /q "%s"' % p for p in paths)
+    subprocess.Popen('cmd /c "%s"' % cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP, close_fds=True)
+
+
 def cmd_uninstall(args):
     app = os.path.join(config.DATA_DIR, 'app')
     # 只删除安装脚本装在数据目录 app/ 中的程序；从源码目录等其他位置运行时不删程序文件
@@ -402,23 +410,28 @@ def cmd_uninstall(args):
     except (RuntimeError, OSError) as e:
         print('移除定时任务失败：%s。程序和数据都未删除' % e)
         return 1
+    later = []   # Windows 上等启动脚本退出后再删的目录
     if installed:
-        shutil.rmtree(app)
+        shutil.rmtree(app)   # 模块已读入内存，运行中删除程序文件没有影响
         if os.name == 'nt':
-            # 正在运行的 token-stats.cmd 也可以删：启动脚本把运行 Python 和 call exit /b 写在同一行，cmd 不会再回文件读下一行
-            shutil.rmtree(os.path.dirname(launcher()))
+            later = [os.path.dirname(launcher())]
         elif os.path.exists(launcher()):
             os.remove(launcher())
-        print('已删除程序和启动脚本')
+        print('已删除程序和启动脚本' if not later else '已删除程序；启动脚本将在本命令结束几秒后删除')
     if purge:
-        for d in (config.CONFIG_DIR, config.DATA_DIR):
-            if os.path.exists(d):
-                shutil.rmtree(d)
-        print('已删除配置和数据目录')
+        if os.path.exists(config.CONFIG_DIR):
+            shutil.rmtree(config.CONFIG_DIR)
+        if later:
+            later = [config.DATA_DIR]   # 启动脚本所在的 bin\ 在数据目录中，整个数据目录稍后一起删
+        elif os.path.exists(config.DATA_DIR):
+            shutil.rmtree(config.DATA_DIR)
+        print('已删除配置和数据目录' if not later else '已删除配置；数据目录将在本命令结束几秒后删除')
     else:
         print('保留配置 %s 和数据目录 %s' % (config.CONFIG_DIR, config.DATA_DIR))
     if cfg and cfg['publish']:
         print('发布仓库 %s 在 GitHub 上，不再需要时自己删除' % cfg['publish'])
+    if later:
+        remove_later(later)
     print('卸载完成')
     return 0
 

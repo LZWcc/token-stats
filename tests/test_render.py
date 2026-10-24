@@ -64,7 +64,7 @@ class RenderCardsTest(TempDirTest):
             if f.endswith('.svg'):
                 with open(os.path.join(out, f), encoding='utf-8') as fh:
                     svgs[f] = fh.read()
-        self.assertEqual(len(svgs), 14)
+        self.assertEqual(len(svgs), 18)
         self.assertTrue(os.path.exists(os.path.join(out, 'preview.html')))
         for name, svg in svgs.items():
             minidom.parseString(svg.encode('utf-8'))   # 都是合法的 XML
@@ -73,7 +73,7 @@ class RenderCardsTest(TempDirTest):
     def test_no_data(self):
         svgs = self.render([])
         for name in ('models-donut', 'models-donut-dark', 'models-bar', 'models-bar-dark', 'monthly', 'monthly-dark',
-                     'agents', 'agents-dark'):
+                     'agents', 'agents-dark', 'overview', 'overview-dark'):
             self.assertIn('暂无数据', svgs[name + '.svg'])
         self.assertIn('>0</text>', svgs['badge.svg'])
 
@@ -126,13 +126,13 @@ class NewCardsTest(unittest.TestCase):
 
     def test_tools(self):
         days = [day('2026-01-01', codex=300), day('2026-03-10', codex=100, **{'claude-code': 100}), day('2026-03-11', other=0)]
-        svg = render.tools(LIGHT, self.agent_days(days), self.TODAY, 274)
+        svg = render.tools(LIGHT, self.agent_days(days), self.TODAY, render.HALF_H)
         minidom.parseString(svg.encode('utf-8'))
+        self.assertIn('height="%d"' % render.HALF_H, svg)    # 与半年热力图等高，便于并排
         self.assertIn('全部时间 · 500', svg)
         # Codex 在前（用量大）；近 30 天只算 2 月 14 日以后
         self.assertLess(svg.index('>Codex<'), svg.index('>Claude Code<'))
         self.assertIn('近 30 天 100 · 活跃 2 天', svg)
-        self.assertIn('首次使用 2026-01-01', svg)
         self.assertIn('80.0%', svg)
         self.assertIn('20.0%', svg)
         self.assertNotIn('>other<', svg)                     # 用量为 0 的 agent 不列出
@@ -143,7 +143,32 @@ class NewCardsTest(unittest.TestCase):
         self.assertIn('>AI tokens<', svg)
         self.assertIn('>7.6B<', svg)
         self.assertIn(render.BADGE[1], svg)
+        # 与 shields.io 相同：每段宽度 = Verdana 11px 文字宽度取整 + 10（shields 生成的同一徽章左段也是 63）
+        self.assertIn('<rect width="63" height="20" fill="#555555"/>', svg)
+        self.assertIn('textLength="530"', svg)
 
+    def test_heatmap_half(self):
+        days = {'2026-03-15': 5, '2025-09-14': 9}          # 后者在 26 周之前
+        svg = render.heatmap_half(LIGHT, days, self.TODAY)
+        minidom.parseString(svg.encode('utf-8'))
+        self.assertIn('近半年 5 · 活跃 1 天', svg)
+        self.assertIn('height="%d"' % render.HALF_H, svg)
+        cells = re.findall(r'<rect x="(\d+)" y="\d+" width="9" height="9"', svg)
+        self.assertEqual(len(set(cells)), render.HALF_WEEKS + 5)  # 26 列格子 + 图例 5 格（横坐标各不相同）
+        self.assertLessEqual(max(int(x) for x in cells), render.NARROW - render.PAD)
+
+    def test_overview(self):
+        days = {'2026-03-15': 10}
+        svg = render.overview(LIGHT, days, {'claude-x': 6, 'gpt-y': 4}, self.TODAY)
+        minidom.parseString(svg.encode('utf-8'))
+        self.assertIn('>claude-x<', svg)
+        self.assertIn('>6</text>', svg)                        # 每个模型都写 token 数和占比，各占一列
+        self.assertIn('>60.0%</text>', svg)
+        self.assertIn('>连续使用<', svg)                        # 底部统计行
+        self.assertNotIn('>总量<', svg)                         # 环形图中心已有总量，底部不重复
+        empty = render.overview(LIGHT, {}, {}, self.TODAY)
+        self.assertIn('暂无数据', empty)
+        self.assertIn('>总量<', empty)                          # 没有环形图时总量放在底部
 
 if __name__ == '__main__':
     unittest.main()

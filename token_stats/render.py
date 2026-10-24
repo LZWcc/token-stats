@@ -1,6 +1,8 @@
-"""卡片渲染：从日数据生成七张静态 SVG 卡片（亮色、暗色各一份）和本地预览页。
+"""卡片渲染：从日数据生成九张静态 SVG 卡片（亮色、暗色各一份）和本地预览页。
 
-热力图统计最近一年，月度用量统计最近 12 个月；模型占比环形图、模型排行条形图、统计卡片、工具对比、徽章统计全部时间。
+热力图统计最近一年，半年热力图统计最近 26 周，月度用量统计最近 12 个月；概览左上模型占比（全部时间）、右上近半年热力图、
+底部一行统计；
+模型占比环形图、模型排行条形图、统计卡片、工具对比、徽章统计全部时间。
 配色按 dataviz 规范在 GitHub 亮 / 暗背景下验证过，见 PROJECT.md 第 9 节。只用标准库，兼容 Python 3.9。
 """
 import glob
@@ -29,12 +31,20 @@ DONUT_BRANDS = {'Anthropic': 4, 'OpenAI': 0}
 AGENT_NAMES = {'claude-code': ('Claude Code', 'Anthropic'), 'codex': ('Codex', 'OpenAI')}
 # 徽章：左灰右绿、白字，对比度 7.5 和 5.7（≥ 4.5），亮暗两份相同
 BADGE = ('#555555', '#037465')
+# Verdana 11px 下 ASCII 32–126 的字宽（macOS 上用 AppKit 实测），用来按 shields.io 的算法算徽章宽度；其他字符按 11px 计
+VERDANA = (3.87, 4.33, 5.05, 9.00, 6.99, 11.84, 7.99, 2.95, 5.00, 5.00, 6.99, 9.00, 4.00, 5.00, 4.00, 5.00, 6.99, 6.99, 6.99, 6.99,
+           6.99, 6.99, 6.99, 6.99, 6.99, 6.99, 5.00, 5.00, 9.00, 9.00, 9.00, 6.00, 11.00, 7.52, 7.54, 7.68, 8.48, 6.96, 6.32, 8.53,
+           8.27, 4.63, 5.00, 7.62, 6.12, 9.27, 8.23, 8.66, 6.63, 8.66, 7.65, 7.52, 6.78, 8.05, 7.52, 10.88, 7.54, 6.77, 7.54, 5.00,
+           5.00, 5.00, 9.00, 6.99, 6.99, 6.61, 6.85, 5.73, 6.85, 6.55, 3.87, 6.85, 6.96, 3.02, 3.79, 6.51, 3.02, 10.70, 6.96, 6.68,
+           6.85, 6.85, 4.69, 5.73, 4.33, 6.96, 6.51, 9.00, 6.51, 6.51, 5.78, 6.98, 5.00, 6.98, 9.00)
 FONT = "system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif"
 PAD = 16
 STEP, CELL = 13, 10                     # 热力图格子步长、边长
 WIDE = PAD + 28 + 53 * STEP - 3 + PAD   # 宽卡片：热力图、统计
 NARROW = (WIDE - PAD) // 2              # 窄卡片：环形图、排行，两张并排加间距等于宽卡片
 TOP_N_DONUT, TOP_N_BAR = 5, 8
+HALF_WEEKS, HALF_STEP, HALF_CELL = 26, 11, 9           # 半年热力图：26 周放进窄卡片，格子比全年的小一号
+HALF_H = 62 + 7 * HALF_STEP + 10 + HALF_CELL + PAD      # 半年热力图的高度；工具对比、概览与它等高
 MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 
@@ -76,9 +86,10 @@ def subtitle(t, s):
     return '<tspan dx="10" font-size="12" font-weight="400" fill="%s">%s</tspan>' % (t['muted'], s)
 
 
-def heatmap(t, days, today):
-    # 53 列，每列从周日开始，最后一列截止到今天
-    start = today - timedelta(days=(today.weekday() + 1) % 7 + 52 * 7)
+def heat_grid(t, days, today, weeks, step, cell, left, top, right):
+    """热力图的格子、月份与星期标签、右下角色阶图例。返回 (SVG 片段列表, 底边 y, 非零日的用量)。"""
+    # weeks 列，每列从周日开始，最后一列截止到今天
+    start = today - timedelta(days=(today.weekday() + 1) % 7 + (weeks - 1) * 7)
     cells = []
     d = start
     while d <= today:
@@ -88,7 +99,6 @@ def heatmap(t, days, today):
     # 0 单独一档，非零日按四分位分 4 档（与 GitHub 相同）
     qs = [nonzero[int((len(nonzero) - 1) * p)] for p in (0.25, 0.5, 0.75)] if nonzero else []
     level = lambda v: 0 if v == 0 else 1 + sum(v > q for q in qs)
-    left, top = PAD + 28, 62
     out = []
     prev = None
     labels = []
@@ -101,22 +111,33 @@ def heatmap(t, days, today):
     for i, (col, m) in enumerate(labels):
         if i + 1 < len(labels) and labels[i + 1][0] - col < 3:
             continue
-        out.append('<text x="%d" y="%d" font-size="10" fill="%s">%s</text>' % (left + col * STEP, top - 8, t['muted'], MONTHS[m - 1]))
+        out.append('<text x="%d" y="%d" font-size="10" fill="%s">%s</text>' % (left + col * step, top - 8, t['muted'], MONTHS[m - 1]))
     for row, name in ((1, 'Mon'), (3, 'Wed'), (5, 'Fri')):
         out.append('<text x="%d" y="%d" font-size="10" text-anchor="end" fill="%s">%s</text>'
-                   % (left - 6, top + row * STEP + 9, t['muted'], name))
+                   % (left - 6, top + row * step + cell - 1, t['muted'], name))
     for i, v in enumerate(cells):
         out.append('<rect x="%d" y="%d" width="%d" height="%d" rx="2" fill="%s"/>'
-                   % (left + i // 7 * STEP, top + i % 7 * STEP, CELL, CELL, t['heat'][level(v)]))
+                   % (left + i // 7 * step, top + i % 7 * step, cell, cell, t['heat'][level(v)]))
     # 色阶图例：右下角“少 □□□□□ 多”
-    ly = top + 7 * STEP + 10
-    lx = WIDE - PAD - 14 - 5 * STEP
-    out.append('<text x="%d" y="%d" font-size="10" text-anchor="end" fill="%s">少</text>' % (lx - 4, ly + 9, t['muted']))
+    ly = top + 7 * step + 10
+    lx = right - 14 - 5 * step
+    out.append('<text x="%d" y="%d" font-size="10" text-anchor="end" fill="%s">少</text>' % (lx - 4, ly + cell - 1, t['muted']))
     for i, c in enumerate(t['heat']):
-        out.append('<rect x="%d" y="%d" width="%d" height="%d" rx="2" fill="%s"/>' % (lx + i * STEP, ly, CELL, CELL, c))
-    out.append('<text x="%d" y="%d" font-size="10" fill="%s">多</text>' % (lx + 5 * STEP + 1, ly + 9, t['muted']))
+        out.append('<rect x="%d" y="%d" width="%d" height="%d" rx="2" fill="%s"/>' % (lx + i * step, ly, cell, cell, c))
+    out.append('<text x="%d" y="%d" font-size="10" fill="%s">多</text>' % (lx + 5 * step + 1, ly + cell - 1, t['muted']))
+    return out, ly + cell, nonzero
+
+
+def heatmap(t, days, today):
+    out, bottom, nonzero = heat_grid(t, days, today, 53, STEP, CELL, PAD + 28, 62, WIDE - PAD)
     title = 'Token 用量' + subtitle(t, '过去一年 %s · 活跃 %d 天' % (human(sum(nonzero)), len(nonzero)))
-    return card(WIDE, ly + CELL + PAD, t, title, '\n'.join(out) + '\n')
+    return card(WIDE, bottom + PAD, t, title, '\n'.join(out) + '\n')
+
+
+def heatmap_half(t, days, today):
+    out, bottom, nonzero = heat_grid(t, days, today, HALF_WEEKS, HALF_STEP, HALF_CELL, PAD + 28, 62, NARROW - PAD)
+    title = 'Token 用量' + subtitle(t, '近半年 %s · 活跃 %d 天' % (human(sum(nonzero)), len(nonzero)))
+    return card(NARROW, bottom + PAD, t, title, '\n'.join(out) + '\n')
 
 
 def ranked(models, n):
@@ -127,8 +148,9 @@ def ranked(models, n):
     return top, rest, len(items)
 
 
-def donut(t, models, height):
-    top, rest, count = ranked(models, TOP_N_DONUT)
+def model_segments(t, models, n):
+    """前 n 名 + “其他”：[(名字, 用量, 颜色)]。Claude、GPT 系列各自用量最高的模型用厂商色，并让出相近的分类色。"""
+    top, rest, count = ranked(models, n)
     first = {}
     for name, _ in top:
         vname, color = vendor(t, name)
@@ -138,7 +160,12 @@ def donut(t, models, height):
     pool = iter([c for i, c in enumerate(t['series']) if i not in {DONUT_BRANDS[v] for v in first}])
     segs = [(name, v, picked[name] if name in picked else next(pool)) for name, v in top]
     if rest:
-        segs.append(('其他 %d 个模型' % (count - TOP_N_DONUT), rest, t['other']))
+        segs.append(('其他 %d 个模型' % (count - n), rest, t['other']))
+    return segs
+
+
+def donut(t, models, height):
+    segs = model_segments(t, models, TOP_N_DONUT)
     total = sum(v for _, v, _ in segs)
     cx, cy, r, width = PAD + 66, 52 + (height - 52 - PAD) // 2, 52, 18
     if not segs:
@@ -209,6 +236,10 @@ def bars(t, models, height):
         x += 14 + text_w(vname, 11) + 14
     note = '全部时间' + (' · 前 %d / 共 %d 个' % (TOP_N_BAR, count) if count > TOP_N_BAR else '')
     return card(NARROW, height, t, '模型排行' + subtitle(t, note), '\n'.join(out) + '\n')
+
+
+def badge_text_w(s):
+    return round(sum(VERDANA[ord(c) - 32] if 32 <= ord(c) < 127 else 11 for c in s))
 
 
 def agent_style(t, agent):
@@ -291,7 +322,7 @@ def monthly(t, agent_days, today):
 
 
 def tools(t, agent_days, today, height):
-    totals, recent, active, first = {}, {}, {}, {}
+    totals, recent, active = {}, {}, {}
     since = (today - timedelta(days=29)).isoformat()
     for d in sorted(agent_days):
         for a, v in agent_days[d].items():
@@ -299,7 +330,6 @@ def tools(t, agent_days, today, height):
                 continue
             totals[a] = totals.get(a, 0) + v
             active[a] = active.get(a, 0) + 1
-            first.setdefault(a, d)
             if d >= since:
                 recent[a] = recent.get(a, 0) + v
     order = sorted(totals, key=lambda a: -totals[a])
@@ -307,6 +337,7 @@ def tools(t, agent_days, today, height):
     title = '工具对比' + subtitle(t, '全部时间 · %s' % human(total))
     if not total:
         return card(NARROW, height, t, title, no_data(t, NARROW // 2, height // 2 + 10))
+    height = max(height, 76 + len(order) * 36 + PAD)   # 工具多时加高
     out = []
     # 占比条：段间 2px 间隙，左端（基线）直角，右端 4px 圆角
     x, span = PAD, NARROW - 2 * PAD
@@ -322,10 +353,10 @@ def tools(t, agent_days, today, height):
         else:
             out.append('<rect x="%.1f" y="48" width="%.1f" height="10" fill="%s"/>' % (x, draw_w, color))
         x += w
-    row = (height - 80 - PAD) / max(len(order), 2)   # 与环形图、排行图等高，各工具在剩余高度内均匀分布
+    row = (height - 76 - PAD) / max(len(order), 2)   # 各工具在占比条下方均匀分布
     for i, a in enumerate(order):
         name, color = agent_style(t, a)
-        y = 80 + i * row
+        y = 76 + i * row
         out.append('<rect x="%d" y="%.1f" width="10" height="10" rx="2" fill="%s"/>' % (PAD, y, color))
         out.append('<text x="%d" y="%.1f" font-size="12" font-weight="600" fill="%s">%s</text>'
                    % (PAD + 16, y + 9, t['text'], escape(fit(name, 150, 12))))
@@ -333,23 +364,92 @@ def tools(t, agent_days, today, height):
                    % (NARROW - PAD, y + 9, t['text'], human(totals[a]), subtitle(t, '%.1f%%' % (100.0 * totals[a] / total))))
         out.append('<text x="%d" y="%.1f" font-size="11" fill="%s">近 30 天 %s · 活跃 %d 天</text>'
                    % (PAD + 16, y + 27, t['muted'], human(recent.get(a, 0)), active[a]))
-        out.append('<text x="%d" y="%.1f" font-size="11" fill="%s">首次使用 %s</text>' % (PAD + 16, y + 43, t['muted'], first[a]))
     return card(NARROW, height, t, title, '\n'.join(out) + '\n')
 
 
-def badge(total):
-    """shields 风格的徽章，宽度按文字估算。颜色不随主题变化。"""
-    label, value = 'AI tokens', human(total)
-    lw, vw = round(text_w(label, 11)) + 12, round(text_w(value, 11)) + 12
+def badge(total, label='AI tokens'):
+    """shields.io 默认 flat 样式的徽章，结构照 img.shields.io 生成的 SVG：渐变、文字阴影、Verdana、textLength。
+    每段宽度 = 文字宽度取整 + 10（与 shields 相同）。颜色不随主题变化。"""
+    value = human(total)
+    tl, tv = badge_text_w(label), badge_text_w(value)
+    lw, vw = tl + 10, tv + 10
     w = lw + vw
+
+    def text(x, s, tw):
+        return ('<g transform="scale(.1)"><g aria-hidden="true" fill="#010101">'
+                '<text x="%d" y="150" fill-opacity=".8" filter="url(#blur)" textLength="%d">%s</text>'
+                '<text x="%d" y="150" fill-opacity=".3" textLength="%d">%s</text></g>'
+                '<text x="%d" y="140" textLength="%d">%s</text></g>' % (x, tw * 10, s, x, tw * 10, s, x, tw * 10, s))
     return ''.join([
-        '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="20" viewBox="0 0 %d 20" font-family="%s">\n' % (w, w, FONT),
-        '<clipPath id="r"><rect width="%d" height="20" rx="3"/></clipPath>\n' % w,
-        '<g clip-path="url(#r)"><rect width="%d" height="20" fill="%s"/><rect x="%d" width="%d" height="20" fill="%s"/></g>\n'
-        % (lw, BADGE[0], lw, vw, BADGE[1]),
-        '<g font-size="11" fill="#ffffff" text-anchor="middle">'
-        '<text x="%.1f" y="14">%s</text><text x="%.1f" y="14">%s</text></g>\n' % (lw / 2, label, lw + vw / 2, value),
-        '</svg>\n'])
+        '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="20" role="img" aria-label="%s: %s"><title>%s: %s</title>'
+        % (w, escape(label), value, escape(label), value),
+        '<filter id="blur"><feGaussianBlur stdDeviation="16"/></filter>',
+        '<linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>',
+        '<clipPath id="r"><rect width="%d" height="20" rx="3"/></clipPath>' % w,
+        '<g clip-path="url(#r)"><rect width="%d" height="20" fill="%s"/><rect x="%d" width="%d" height="20" fill="%s"/>'
+        '<rect width="%d" height="20" fill="url(#s)"/></g>' % (lw, BADGE[0], lw, vw, BADGE[1], w),
+        '<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">',
+        # 与 shields 相同：左段文字中心右移 1px，右段左移 1px
+        text(lw * 5 + 10, escape(label), tl), text(lw * 10 + vw * 5 - 10, value, tv),
+        '</g></svg>\n'])
+
+
+def hbar(x, y, w, h, color):
+    """横条：左端（基线）直角，右端（数值端）4px 圆角。"""
+    r = min(4, w / 2, h / 2)
+    return ('<path d="M%.1f %.1f h%.1f a%.1f %.1f 0 0 1 %.1f %.1f v%.1f a%.1f %.1f 0 0 1 %.1f %.1f h%.1f z" fill="%s"/>'
+            % (x, y, w - r, r, r, r, r, h - 2 * r, r, r, -r, r, -(w - r), color))
+
+
+def overview(t, days, models, today):
+    """概览：左上模型占比环形图（全部时间），右上近半年热力图，底部一行统计（不重复环形图中心的总量）。"""
+    left = WIDE - PAD - (HALF_WEEKS * HALF_STEP - (HALF_STEP - HALF_CELL))
+    out, bottom, nonzero = heat_grid(t, days, today, HALF_WEEKS, HALF_STEP, HALF_CELL, left, 62, WIDE - PAD)
+    zr = left - 28 - 24                       # 左侧区域的右边界，让出热力图的星期标签
+    top, mid = 52, (52 + bottom) / 2
+    segs = model_segments(t, models, TOP_N_DONUT)
+    total = sum(v for _, v, _ in segs)
+    if not segs:
+        out.append(no_data(t, (PAD + zr) // 2, int(mid) + 4))
+    else:
+        # 环形图：与模型占比卡相同的配色和 2px 段间隙，中心为总量
+        cx, r, width = PAD + 48, 38, 14
+        circ = 2 * math.pi * r
+        offset = 0.0
+        for name, v, color in segs:
+            length = circ * v / total
+            out.append('<circle cx="%d" cy="%.1f" r="%d" fill="none" stroke="%s" stroke-width="%d" '
+                       'stroke-dasharray="%.2f %.2f" stroke-dashoffset="%.2f" transform="rotate(-90 %d %.1f)"/>'
+                       % (cx, mid, r, color, width, max(length - 2, 0.5), circ, -offset, cx, mid))
+            offset += length
+        out.append('<text x="%d" y="%.1f" font-size="15" font-weight="600" text-anchor="middle" fill="%s">%s</text>'
+                   % (cx, mid + 3, t['text'], human(total)))
+        out.append('<text x="%d" y="%.1f" font-size="9" text-anchor="middle" fill="%s">tokens</text>' % (cx, mid + 15, t['muted']))
+        # 图例：名字，token 数与百分比各占一列、右对齐
+        lx, pct_w = cx + r + width // 2 + 20, 40
+        row = (bottom - top) / len(segs)
+        for i, (name, v, color) in enumerate(segs):
+            y = top + i * row + (row - 10) / 2
+            out.append('<rect x="%d" y="%.1f" width="10" height="10" rx="2" fill="%s"/>' % (lx, y, color))
+            out.append('<text x="%d" y="%.1f" font-size="11" fill="%s">%s</text>'
+                       % (lx + 16, y + 9, t['text'], escape(fit(name, zr - pct_w - 56 - lx - 16, 11))))
+            for x, s in ((zr - pct_w, human(v)), (zr, '%.1f%%' % (100.0 * v / total))):
+                out.append('<text x="%d" y="%.1f" font-size="11" text-anchor="end" fill="%s">%s</text>' % (x, y + 9, t['muted'], s))
+    # 底部统计：与统计卡相同的算法；没有数据时环形图中心没有总量，才在这里显示
+    recent = lambda n: sum(days.get((today - timedelta(days=i)).isoformat(), 0) for i in range(n))
+    current, longest = streaks(days, today)
+    tiles = ([] if segs else [('总量', human(sum(days.values())), '')]) + [
+        ('近 7 天', human(recent(7)), ''), ('近 30 天', human(recent(30)), ''),
+        ('活跃天数', '%d 天' % sum(v > 0 for v in days.values()), ''), ('连续使用', '%d 天' % current, '最长 %d 天' % longest)]
+    y = bottom + 20
+    out.append('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="%s" stroke-width="1"/>' % (PAD, y - 0.5, WIDE - PAD, y - 0.5, t['heat'][0]))
+    col_w = (WIDE - 2 * PAD) / len(tiles)
+    for i, (label, v, extra) in enumerate(tiles):
+        x = PAD + i * col_w
+        out.append('<text x="%.1f" y="%d" font-size="12" fill="%s">%s</text>' % (x, y + 22, t['muted'], label))
+        out.append('<text x="%.1f" y="%d" font-size="18" font-weight="600" fill="%s">%s%s</text>'
+                   % (x, y + 46, t['text'], v, subtitle(t, extra) if extra else ''))
+    return card(WIDE, y + 46 + PAD, t, 'Token 用量', '\n'.join(out) + '\n')
 
 
 def streaks(days, today):
@@ -424,18 +524,19 @@ def load(daily_dir, metric):
 
 
 def render_cards(daily_dir, out_dir, metric, today):
-    """生成七张卡片（亮暗各一份）和 preview.html，返回预览页路径。"""
+    """生成九张卡片（亮暗各一份）和 preview.html，返回预览页路径。"""
     days, models, _, agent_days = load(daily_dir, metric)
     os.makedirs(out_dir, exist_ok=True)
     pair_h = 52 + TOP_N_BAR * 23 + 22 + PAD   # 环形图与排行等高，便于并排；22 为排行图的厂商图例
-    names = ('heatmap', 'stats', 'monthly', 'models-donut', 'models-bar', 'agents', 'badge')
+    names = ('heatmap', 'stats', 'monthly', 'overview', 'models-donut', 'models-bar', 'heatmap-half', 'agents', 'badge')
     for theme, t in THEMES.items():
         svgs = (heatmap(t, days, today), stats(t, days, models, today, metric), monthly(t, agent_days, today),
-                donut(t, models, pair_h), bars(t, models, pair_h), tools(t, agent_days, today, pair_h), badge(sum(days.values())))
+                overview(t, days, models, today), donut(t, models, pair_h), bars(t, models, pair_h),
+                heatmap_half(t, days, today), tools(t, agent_days, today, HALF_H), badge(sum(days.values())))
         for name, svg in zip(names, svgs):
             with open(os.path.join(out_dir, name + ('-dark' if theme == 'dark' else '') + '.svg'), 'w', encoding='utf-8') as f:
                 f.write(svg)
-    imgs = lambda suffix: ''.join('<img%s src="%s%s.svg">' % (' class="wide"' if n in ('heatmap', 'stats', 'monthly') else '', n, suffix) for n in names)
+    imgs = lambda suffix: ''.join('<img%s src="%s%s.svg">' % (' class="wide"' if n in ('heatmap', 'stats', 'monthly', 'overview') else '', n, suffix) for n in names)
     preview = os.path.join(out_dir, 'preview.html')
     with open(preview, 'w', encoding='utf-8') as f:
         f.write(PREVIEW % (imgs(''), imgs('-dark')))

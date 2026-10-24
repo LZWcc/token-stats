@@ -10,7 +10,16 @@
 
 ## 卡片示例
 
-作者自己的数据（每天更新）：
+作者自己的数据（每天更新）。共 9 张，每张都有亮色、暗色两份，随访客的 GitHub 主题切换；挑喜欢的贴进主页 README（片段见下方“发布到 GitHub”）。
+
+**概览** `overview`：模型占比、近半年热力图和几项统计合在一张里，只想放一张图时用它。
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/overview-dark.svg">
+  <img alt="Token 概览" src="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/overview.svg">
+</picture>
+
+**热力图** `heatmap`（最近一年）与 **统计** `stats`（总量、近 7 / 30 天、活跃天数、连续使用、最常用模型）：
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/heatmap-dark.svg">
@@ -22,6 +31,15 @@
   <img alt="Token 统计" src="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/stats.svg">
 </picture>
 
+**月度用量** `monthly`：最近 12 个月，按 Claude Code / Codex 堆叠。
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/monthly-dark.svg">
+  <img alt="月度用量" src="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/monthly.svg">
+</picture>
+
+**模型占比** `models-donut` 与 **模型排行** `models-bar`（按厂商上色）：窄卡片，两张并排正好等于一张宽卡片的宽度。
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/models-donut-dark.svg">
   <img alt="模型占比" src="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/models-donut.svg">
@@ -31,7 +49,20 @@
   <img alt="模型排行" src="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/models-bar.svg">
 </picture>
 
-四张卡片：每天用量热力图（最近一年）、统计（总量、近 7 / 30 天、活跃天数、连续使用、最常用模型）、模型占比环形图、模型排行条形图（按厂商上色）。每张都有亮色、暗色两份，随访客的 GitHub 主题切换。
+**近半年热力图** `heatmap-half` 与 **工具对比** `agents`：窄卡片，两张等高，可以并排。
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/heatmap-half-dark.svg">
+  <img alt="近半年用量" src="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/heatmap-half.svg">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/agents-dark.svg">
+  <img alt="工具对比" src="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/agents.svg">
+</picture>
+
+**徽章** `badge`：shields.io 风格，可以和其他徽章放在一起。
+
+<img alt="AI tokens" src="https://raw.githubusercontent.com/LZWcc/token-stats-data/main/token-stats/cards/badge.svg">
 
 ## 安装
 
@@ -117,7 +148,7 @@ token-stats merge /path/to/other.db --as win-pc
 </picture>
 ```
 
-卡片名：`heatmap`、`stats`（宽卡片），`models-donut`、`models-bar`（窄卡片，两张并排正好等于一张宽卡片的宽度）。GitHub 对图片有缓存，推送后可能要几分钟才更新。
+卡片名：宽卡片 `overview`、`heatmap`、`stats`、`monthly`；窄卡片 `models-donut` 与 `models-bar`、`heatmap-half` 与 `agents`（两张并排正好等于一张宽卡片的宽度）；徽章 `badge`（颜色不随主题变化，可以直接用 `<img>`）。GitHub 对图片有缓存，推送后可能要几分钟才更新。
 
 ### 公开哪些内容
 

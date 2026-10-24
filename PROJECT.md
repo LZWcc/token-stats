@@ -131,7 +131,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/LZW
 - 与 Codex 的安装脚本不同，下载的不是独立程序，用户机器上需要 Python ≥ 3.9：macOS 由 Xcode 命令行工具提供 `/usr/bin/python3`，Linux 发行版通常自带，Windows 需自行安装。不用 PyInstaller 打包独立程序（每个平台要单独构建，体积大）。
 - 安装脚本：
   1. 找 Python ≥ 3.9：macOS 优先系统自带的 `/usr/bin/python3`，其次 PATH 中的 `python3`；Linux 用 PATH 中的 `python3`；Windows 用 `python`。不满足就提示安装方法后退出。
-  2. 从 GitHub 下载**最新 Release** 的源码包（由 `releases/latest` 的重定向得到版本号，再下载 GitHub 为该 tag 自动生成的归档，不需要构建步骤），解压后整个替换程序目录：数据目录下的 `app/`。只装发布过的版本，不装 `main` 上未发布的代码。环境变量 `TOKEN_STATS_ARCHIVE` 可指定源码包地址，只用于测试。
+  2. 从 GitHub 下载**最新 Release** 的源码包（再下载 GitHub 为该 tag 自动生成的归档，不需要构建步骤），解压后只取其中的 `token_stats/`，整个替换程序目录：数据目录下的 `app/`（先复制到 `app.new/` 再替换，下载或解压失败时旧的 `app/` 不变）。只装发布过的版本，不装 `main` 上未发布的代码。版本号：`install.sh` 由 `releases/latest` 的重定向得到，用 GET 而不是 HEAD（实测 HTTP/2 下对 GitHub 发 HEAD 会出错或卡住）；`install.ps1` 用 GitHub API `releases/latest` 的 `tag_name`（Windows PowerShell 5.1 与 PowerShell 7 读取重定向地址的方式不同）。环境变量 `TOKEN_STATS_ARCHIVE` 可指定源码包的地址或本地路径，只用于测试。
   3. 生成启动脚本：macOS / Linux 为 `~/.local/bin/token-stats`，Windows 为 `%LOCALAPPDATA%\token-stats\bin\token-stats.cmd`，内容是设置 `PYTHONPATH` 为程序目录后，用第 1 步找到的 Python 的**绝对路径**执行 `-m token_stats` 并传入全部参数。定时任务记录的也是这个 Python；Homebrew 等带版本号的路径在升级 Python 后会失效，所以 macOS 优先 `/usr/bin/python3`。
   4. 启动脚本所在目录不在 PATH 中时，只打印需要添加的那一行，不修改 `~/.zshrc`、`~/.bashrc` 或系统 PATH 等用户配置。
   5. 打印安装的版本。
@@ -215,9 +215,9 @@ M4 实测结果（2026-10-24，主机 laptop）：
 M5 计划：
 1. 基础文件：`LICENSE`（MIT，版权人 LZWcc）；`.gitignore` 加 `__pycache__/`。
 2. 自动化测试：`tests/`，只用标准库 `unittest`，用 `python3 -m unittest` 运行；合成日志按第 6 节规则构造，不含任何真实数据。覆盖：解析；跨机器去重、同一请求多次出现时的取舍；增量读取（文件变大、变小、`.zst`）；CC Switch 导入（合成 sqlite 库）与只导入一次的保护；导出的时区、夏令时、删除多余的日期文件；渲染时没有数据、中文和超长模型名；`merge`、`rename`；发布（本地裸仓库，覆盖 M4 实测的各项）。不覆盖 ssh 远端和定时任务的实际安装。
-3. GitHub Actions：每次推送在 macOS、Linux、Windows 上用 Python 3.9 和最新版运行测试。这是 Windows 目前唯一的验证途径，但覆盖不到定时任务和 ssh 远端。
+3. GitHub Actions：每次推送在 macOS、Linux、Windows 上用 Python 3.9 和最新版运行测试；另在三个平台上用当前提交打出的源码包（`TOKEN_STATS_ARCHIVE`）运行安装脚本，再用启动脚本运行一次试用。这是 Windows 目前唯一的验证途径，但覆盖不到定时任务和 ssh 远端。
 4. 安装脚本：`install.sh`、`install.ps1`（第 2 节“安装”），在 Mac 的临时家目录中测试（`TOKEN_STATS_ARCHIVE` 指向本地打包的源码包）。
-5. README：先只写中文 `README.md`；英文版以后再补（`README.en.md`）。内容：是什么；卡片示例（引用作者的数据仓库）；安装、试用、`init`；多台机器（服务器需要免密 ssh、Python ≥ 3.9）；发布与 README 片段；合并其他机器、导入 CC Switch；配置说明；公开哪些内容；Claude Code 30 天日志保留期与“至少每 30 天 `sync` 一次”；可选的定时任务；升级与卸载。
+5. README：先只写中文 `README.md`；英文版以后再补（`README.en.md`）。内容：是什么；卡片示例（引用作者的数据仓库）；安装、试用、`init`；多台机器（服务器需要免密 ssh、Python ≥ 3.9）；发布与 README 片段；合并其他机器、导入 CC Switch；配置说明；公开哪些内容；Claude Code 30 天日志保留期与“至少每 30 天 `sync` 一次”；可选的定时任务；升级与卸载；升级 Python 后重新运行安装命令，装了定时任务的再运行一次 `init`（启动脚本和定时任务记录的都是 Python 的绝对路径，Homebrew 和 Windows 上 python.org 版本的路径带版本号）。
 6. 公开发布（每一步先征得作者同意）：创建公开仓库 `LZWcc/token-stats`，只推送 `main`，不推送旧架构的 `dev` 分支；打 tag `v0.1.0`，用 `gh release create` 发布 Release。`PROJECT.md`、`CLAUDE.md`、`AGENTS.md` 随仓库公开；提交作者为作者本人的 GitHub 身份。
 7. 实测：在临时家目录中用 `curl … | sh` 从 GitHub 安装并跑通；再用安装脚本替换作者手动复制的 `app/`，配置和 usage.db 不动。
 

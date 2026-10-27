@@ -72,6 +72,7 @@
   README.md                         ← 只在 init 新建仓库时生成一次（展示卡片并附 README 片段），之后不再改动；已有仓库不碰
   token-stats/
     data/daily/<YYYY-MM-DD>.json    ← 第 7 节的日数据
+    data/summary.json               ← 第 7 节的汇总数据
     cards/*.svg                     ← 第 9 节的卡片，亮暗各一份；preview.html 不推送
 ```
 
@@ -109,7 +110,7 @@ Python 包 `token_stats/`（`python3 -m token_stats`）；M5 起用安装脚本�
 | `store.py` | 表结构、去重写入、导出日数据、合并、改名、备份、跨平台文件锁 |
 | `remote.py` | 经 ssh 在远端执行 scan.py、检查远端 Python 版本 |
 | `ccswitch.py` | CC Switch 只读快照与导入（第 8 节） |
-| `render.py` | 九张卡片（第 9 节） |
+| `render.py` | 九张卡片（第 9 节）、汇总数据 summary.json（第 7 节） |
 | `config.py` | 配置文件、数据目录、时区 |
 | `schedule.py` | 定时任务的安装与状态 |
 | `cli.py` | 各命令 |
@@ -335,6 +336,22 @@ CREATE TABLE machines (
 - 顶层四项等于各 agent 之和，也等于各模型之和。模型名原样保留，不合并、不改名。
 - 来源选择**先按机器、再合计**：某台机器的某个 agent 某天有 CC Switch 数据时，这台机器这个 agent 这天只用 CC Switch，否则用日志。不影响同一天其他机器的数据。
 
+### 汇总数据
+
+渲染卡片时同时生成 `summary.json`（与卡片在同一目录），发布时放到 `data/summary.json`。用途：个人网站等想显示用量的地方直接读这一个文件，不必自己汇总日数据，数字也和卡片一致。
+
+```json
+{ "updated": "YYYY-MM-DD", "metric": "all",
+  "total": 0, "last7": 0, "last30": 0, "active_days": 0, "streak": 0, "longest_streak": 0,
+  "models": { "<模型名>": 0 },
+  "agents": { "claude-code": 0 },
+  "daily": [ { "date": "YYYY-MM-DD", "total": 0 } ] }
+```
+
+- 每项都是一个数，按配置的口径 `metric` 计算（第 9 节），与卡片同一套算法：`updated` 是配置时区的今天；近 7 天、近 30 天截止到今天；连续使用截止到今天，今天还没用时截止到昨天。
+- `models`、`agents` 是全部时间的合计，从多到少排列，模型不截断、不合并成“其他”，怎么展示由使用方决定。
+- `daily` 从第一天逐日列到今天，没有数据的日子记 0。没有任何数据时为空列表，各项为 0。
+
 ## 8. CC Switch 导入（可选，一次性）
 
 `token-stats import-cc-switch`（`init` 中也会询问）：只读打开 CC Switch 原库，用 SQLite 备份接口复制一份快照，再从快照导入，不改动原库；导入主机的 usage.db，machine = 配置的本机名，source = `'cc-switch'`。一个 usage.db 只应从一份快照导入一次：CC Switch 之后可能把逐请求记录汇总成日汇总行并删除明细，用新快照再导入会重复计数。导入脚本会检查：库中已有 cc-switch 数据就拒绝导入，不提供强制选项。
@@ -355,7 +372,7 @@ CC Switch 中的数据（2026-10-23 快照）：
 
 ## 9. 卡片
 
-`token-stats sync` 渲染到数据目录的 `cards/`（试用模式渲染到当前目录的 `token-stats-cards/`）：九张静态 SVG，每张亮色、暗色各一份（`-dark` 后缀），外加本地预览页 `preview.html`（两种背景并排）。没有数据时卡片显示“暂无数据”。README 用 `<picture>` 按访客主题切换。
+`token-stats sync` 渲染到数据目录的 `cards/`（试用模式渲染到当前目录的 `token-stats-cards/`）：九张静态 SVG，每张亮色、暗色各一份（`-dark` 后缀），外加本地预览页 `preview.html`（两种背景并排）和汇总数据 `summary.json`（第 7 节）。没有数据时卡片显示“暂无数据”。README 用 `<picture>` 按访客主题切换。
 
 口径 metric：默认 all = 四项全加，与 Codex、ccusage 的“总 token”一致；effective = input + cache_write + output，不含缓存读取。缓存读取通常占 90% 以上，两者相差一个数量级；统计卡片底部注明当前口径。由配置文件的 `metric` 指定。
 
@@ -405,7 +422,7 @@ CC Switch 中的数据（2026-10-23 快照）：
 
 ## 10. 公开与脱敏
 
-- 公开（推送到用户仓库的 `token-stats/` 子目录）：每天合计的四项 token 数、按 agent 和按模型的拆分（含模型名）、SVG 卡片。自动提交的作者是 `token-stats <token-stats@localhost>`，不含用户的姓名和邮箱。
+- 公开（推送到用户仓库的 `token-stats/` 子目录）：每天合计的四项 token 数、按 agent 和按模型的拆分（含模型名）、由它们算出的汇总数据、SVG 卡片。自动提交的作者是 `token-stats <token-stats@localhost>`，不含用户的姓名和邮箱。
 - 不公开：机器名和数量、IP、端口、ssh 配置、代理、本机用户名（作为路径或登录名）、本地路径；日志原文、prompt、代码、项目路径、会话 id；`usage.db`；任何凭据。
 - GitHub 账号例外：源码仓库地址、安装命令、README 中的示例卡片地址会出现作者的 GitHub 账号。源码仓库的提交作者为作者本人的 GitHub 身份。
 - `.gitignore` 至少包含：`archive/`、`output/`、`LOCAL.md`、`*.db`、`.env`、`__pycache__/`。

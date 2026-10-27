@@ -32,6 +32,7 @@ class PublishTest(TempDirTest):
                 self.write(os.path.join(d, n), n)
         with open(os.path.join(self.cards, 'preview.html'), 'w') as f:   # 不推送
             f.write('preview')
+        self.write(os.path.join(self.cards, 'summary.json'), '{}')         # 推送到 data/summary.json
         # 假 gh：repo create 时建一个本地裸仓库，HEAD 指向 main，与 GitHub 新建的空仓库一致（克隆空仓库时本地分支跟随远端 HEAD）
         fake = lambda cmd, **kw: real_run(['git', 'init', '-q', '--bare', '--initial-branch=main', self.bare], **kw) if cmd[0] == 'fake-gh' else real_run(cmd, **kw)
         with mock.patch.object(publish.subprocess, 'run', fake):
@@ -74,7 +75,7 @@ class PublishTest(TempDirTest):
     def test_publish_nochange_and_author(self):
         self.assertEqual(self.publish(), '已提交 update 2026-01-03 · 已推送 1 个提交')
         self.assertEqual(self.files(), ['README.md', 'token-stats/cards/a-dark.svg', 'token-stats/cards/a.svg'] +
-                         ['token-stats/data/daily/2026-01-0%d.json' % i for i in range(1, 4)])
+                         ['token-stats/data/daily/2026-01-0%d.json' % i for i in range(1, 4)] + ['token-stats/data/summary.json'])
         self.assertEqual(self.publish(), '无变化 · 远端已是最新')
         authors = set(self.bare_git('log', '--format=%an <%ae>|%cn <%ce>').splitlines())
         self.assertEqual(authors, {'token-stats <token-stats@localhost>|token-stats <token-stats@localhost>'})

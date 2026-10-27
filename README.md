@@ -83,7 +83,7 @@ Claude Code 默认清理 30 天前的会话日志，所以每台机器至少每 
 
 GitHub 对图片有缓存，推送后可能要几分钟才更新。
 
-**公开的内容**：每天合计的四项 token 数（输入、输出、缓存写入、缓存读取）、按 agent 和按模型的拆分（含模型名）、卡片。日数据在仓库的 `token-stats/data/daily/`，每天一个 JSON 文件。
+**公开的内容**：每天合计的四项 token 数（输入、输出、缓存写入、缓存读取）、按 agent 和按模型的拆分（含模型名）、卡片。日数据在仓库的 `token-stats/data/daily/`，每天一个 JSON 文件；`token-stats/data/summary.json` 是汇总好的总量、近 7 / 30 天、连续天数、各模型和各工具的合计、逐日总量，与卡片上的数字一致，个人网站要显示用量时直接读它就行。
 
 **不公开**：机器名和数量、IP、端口、ssh 配置、本机用户名、本地路径；日志原文、prompt、代码、项目路径、会话 id；`usage.db`；任何凭据。
 
@@ -134,7 +134,7 @@ GitHub 对图片有缓存，推送后可能要几分钟才更新。
 | `metric` | 卡片口径：`all`（默认，四项全加）或 `effective`（不含缓存读取；缓存读取通常占 90% 以上） |
 | `publish` | 发布仓库 `owner/name`，不填则只在本地生成卡片 |
 
-数据目录 `~/.local/share/token-stats/`（Windows：`%LOCALAPPDATA%\token-stats\`）：`usage.db`（逐请求账本）、`daily/`、`cards/`（含预览页 `preview.html`）、`backups/`（每日备份，保留 7 份）、`publish/`（发布仓库的本地克隆）、`run.log`，程序本身在 `app/`。
+数据目录 `~/.local/share/token-stats/`（Windows：`%LOCALAPPDATA%\token-stats\`）：`usage.db`（逐请求账本）、`daily/`、`cards/`（含预览页 `preview.html` 和汇总数据 `summary.json`）、`backups/`（每日备份，保留 7 份）、`publish/`（发布仓库的本地克隆）、`run.log`，程序本身在 `app/`。
 
 ## 升级与卸载
 

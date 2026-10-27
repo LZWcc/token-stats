@@ -1,4 +1,4 @@
-"""可选发布：把日数据和卡片推送到用户 GitHub 仓库的 token-stats/ 子目录，子目录以外的文件不碰。见 PROJECT.md 第 2 节“发布”。"""
+"""可选发布：把日数据、汇总数据和卡片推送到用户 GitHub 仓库的 token-stats/ 子目录，子目录以外的文件不碰。见 PROJECT.md 第 2 节“发布”。"""
 import os
 import shutil
 import subprocess
@@ -79,6 +79,12 @@ def publish(repo, daily_dir, cards_dir, today):
         run(d, 'reset', '-q', '--hard', 'origin/' + b)
     mirror(daily_dir, os.path.join(d, SUBDIR, 'data', 'daily'), '.json')
     mirror(cards_dir, os.path.join(d, SUBDIR, 'cards'), '.svg')
+    # 汇总数据和卡片一起渲染在 cards_dir，发布时放到 data/ 下，和日数据在一起
+    src, dst = os.path.join(cards_dir, 'summary.json'), os.path.join(d, SUBDIR, 'data', 'summary.json')
+    if os.path.exists(src):
+        shutil.copyfile(src, dst)
+    elif os.path.exists(dst):
+        os.remove(dst)
     run(d, 'add', '-A', SUBDIR)
     changed = run(d, 'diff', '--cached', '--quiet', check=False).returncode != 0
     if changed:

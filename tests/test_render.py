@@ -68,10 +68,30 @@ class RenderCardsTest(TempDirTest):
         self.assertTrue(os.path.exists(os.path.join(out, 'preview.html')))
         for name, svg in svgs.items():
             minidom.parseString(svg.encode('utf-8'))   # 都是合法的 XML
+        with open(os.path.join(out, 'summary.json'), encoding='utf-8') as f:
+            self.summary = json.load(f)
         return svgs
+
+    def test_summary(self):
+        day = lambda date, agent, model, n: {'date': date, 'input': n, 'cache_write': 0, 'cache_read': 0, 'output': 0,
+                                             'agents': {agent: {'input': n, 'cache_write': 0, 'cache_read': 0, 'output': 0}},
+                                             'models': {model: {'input': n, 'cache_write': 0, 'cache_read': 0, 'output': 0}}}
+        # 今天是 03-01（还没用）：02-26 ~ 02-28 连续 3 天，02-20 单独 1 天
+        self.render([day('2026-02-20', 'codex', 'gpt-5', 5), day('2026-02-26', 'claude-code', 'claude-opus', 10),
+                     day('2026-02-27', 'claude-code', 'claude-opus', 20), day('2026-02-28', 'codex', 'gpt-5', 30)])
+        s = self.summary
+        self.assertEqual((s['updated'], s['metric'], s['total'], s['last7'], s['last30']), ('2026-03-01', 'all', 65, 60, 65))
+        self.assertEqual((s['active_days'], s['streak'], s['longest_streak']), (4, 3, 3))
+        self.assertEqual(list(s['models'].items()), [('gpt-5', 35), ('claude-opus', 30)])   # 从多到少
+        self.assertEqual(list(s['agents'].items()), [('codex', 35), ('claude-code', 30)])
+        # 从第一天逐日列到今天，没有数据的日子记 0
+        self.assertEqual(len(s['daily']), 10)
+        self.assertEqual((s['daily'][0], s['daily'][1], s['daily'][-1]),
+                         ({'date': '2026-02-20', 'total': 5}, {'date': '2026-02-21', 'total': 0}, {'date': '2026-03-01', 'total': 0}))
 
     def test_no_data(self):
         svgs = self.render([])
+        self.assertEqual((self.summary['total'], self.summary['models'], self.summary['daily']), (0, {}, []))
         for name in ('models-donut', 'models-donut-dark', 'models-bar', 'models-bar-dark', 'monthly', 'monthly-dark',
                      'agents', 'agents-dark', 'overview', 'overview-dark'):
             self.assertIn('暂无数据', svgs[name + '.svg'])

@@ -1,4 +1,4 @@
-"""卡片渲染：从日数据生成九张静态 SVG 卡片（亮色、暗色各一份）和本地预览页。
+"""卡片渲染：从日数据生成九张静态 SVG 卡片（亮色、暗色各一份）、汇总数据 summary.json 和本地预览页。
 
 热力图统计最近一年，半年热力图统计最近 26 周，月度用量统计最近 12 个月；概览左上模型占比（全部时间）、右上近半年热力图、
 底部一行统计；
@@ -523,10 +523,31 @@ def load(daily_dir, metric):
     return days, {m: v for m, v in models.items() if v > 0}, agents, agent_days
 
 
+def summary(days, models, agents, today, metric):
+    """汇总数据：与卡片同一套算法和口径，网页等可以直接读取，不必自己汇总日数据。见 PROJECT.md 第 7 节。"""
+    recent = lambda n: sum(days.get((today - timedelta(days=i)).isoformat(), 0) for i in range(n))
+    current, longest = streaks(days, today)
+    daily = []
+    if days:
+        # 从第一天到今天逐日列出，没有数据的日子记 0，画折线、柱状图时不用自己补
+        d = datetime.strptime(min(days), '%Y-%m-%d').date()
+        end = max(today, datetime.strptime(max(days), '%Y-%m-%d').date())
+        while d <= end:
+            daily.append({'date': d.isoformat(), 'total': days.get(d.isoformat(), 0)})
+            d += timedelta(days=1)
+    desc = lambda acc: dict(sorted(acc.items(), key=lambda kv: -kv[1]))
+    return {'updated': today.isoformat(), 'metric': metric, 'total': sum(days.values()), 'last7': recent(7), 'last30': recent(30),
+            'active_days': sum(v > 0 for v in days.values()), 'streak': current, 'longest_streak': longest,
+            'models': desc(models), 'agents': desc(agents), 'daily': daily}
+
+
 def render_cards(daily_dir, out_dir, metric, today):
-    """生成九张卡片（亮暗各一份）和 preview.html，返回预览页路径。"""
-    days, models, _, agent_days = load(daily_dir, metric)
+    """生成九张卡片（亮暗各一份）、summary.json 和 preview.html，返回预览页路径。"""
+    days, models, agents, agent_days = load(daily_dir, metric)
     os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, 'summary.json'), 'w', encoding='utf-8', newline='\n') as f:
+        json.dump(summary(days, models, agents, today, metric), f, ensure_ascii=False, indent=1)
+        f.write('\n')
     pair_h = 52 + TOP_N_BAR * 23 + 22 + PAD   # 环形图与排行等高，便于并排；22 为排行图的厂商图例
     names = ('heatmap', 'stats', 'monthly', 'overview', 'models-donut', 'models-bar', 'heatmap-half', 'agents', 'badge')
     for theme, t in THEMES.items():
